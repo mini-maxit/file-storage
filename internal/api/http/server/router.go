@@ -195,6 +195,65 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 		w.Write([]byte("Task directory created successfully"))
 	})
 
-	return &Server{mux: mux}
+	mux.HandleFunc("/submit", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 
+		// Limit the size of the incoming request to 10 MB
+		r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024)
+
+		// Parse the multipart form data
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			http.Error(w, "The uploaded file is too large.", http.StatusBadRequest)
+			return
+		}
+
+		// Extract 'taskID' and 'userID' from form data
+		taskIDStr := r.FormValue("taskID")
+		userIDStr := r.FormValue("userID")
+		if taskIDStr == "" || userIDStr == "" {
+			http.Error(w, "taskID and userID are required.", http.StatusBadRequest)
+			return
+		}
+
+		taskID, err := strconv.Atoi(taskIDStr)
+		if err != nil {
+			http.Error(w, "Invalid taskID.", http.StatusBadRequest)
+			return
+		}
+
+		userID, err := strconv.Atoi(userIDStr)
+		if err != nil {
+			http.Error(w, "Invalid userID.", http.StatusBadRequest)
+			return
+		}
+
+		// Process the submission file
+		file, fileHeader, err := r.FormFile("submissionFile")
+		if err != nil {
+			http.Error(w, "Submission file is required.", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		// Read the file content
+		fileContent, err := io.ReadAll(file)
+		if err != nil {
+			http.Error(w, "Failed to read submission file.", http.StatusInternalServerError)
+			return
+		}
+
+		// Invoke the service function to handle the submission
+		err = ts.CreateUserSubmission(taskID, userID, fileContent, fileHeader.Filename)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create submission: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Write([]byte("Submission created successfully"))
+	})
+
+	return &Server{mux: mux}
 }

@@ -252,3 +252,96 @@ func (ts *TaskService) saveFiles(inputDir, outputDir string, files map[string][]
 
 	return nil
 }
+
+// CreateUserSubmission creates a new submission directory for a user's task submission.
+// It creates a directory `submissions/user{user_id}/submission{n}/`, where n is an incrementing submission number.
+// It places the user's submission file (e.g., solution.{ext}) inside the submission folder
+// and creates an empty `output/` folder for the generated output files.
+func (ts *TaskService) CreateUserSubmission(taskID int, userID int, userFile []byte, fileName string) error {
+	// Define paths
+	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+	submissionsDir := filepath.Join(taskDir, "submissions")
+	userDir := filepath.Join(submissionsDir, fmt.Sprintf("user%d", userID))
+
+	// Check whether task directory exists
+	if _, err := os.Stat(taskDir); os.IsNotExist(err) {
+		return errors.New("invalid taskID: task directory does not exist")
+	}
+
+	// Ensure the submissions directory exists
+	if _, err := os.Stat(submissionsDir); os.IsNotExist(err) {
+		err := os.MkdirAll(submissionsDir, os.ModePerm)
+		if err != nil {
+			return fmt.Errorf("failed to create submissions directory: %v", err)
+		}
+	}
+
+	// Ensure the user directory exists
+	if _, err := os.Stat(userDir); os.IsNotExist(err) {
+		err := os.MkdirAll(userDir, os.ModePerm)
+		if err != nil {
+			return fmt.Errorf("failed to create user directory for user%d: %v", userID, err)
+		}
+	}
+
+	// Get the file extension and validate it
+	fileExtension := strings.ToLower(filepath.Ext(fileName))
+	if fileExtension == "" {
+		return fmt.Errorf("file has no extension")
+	}
+
+	if !ts.isAllowedFileExtension(fileExtension) {
+		return fmt.Errorf("file extension '%s' is not allowed", fileExtension)
+	}
+
+	// Get the next submission number by counting existing submission directories
+	submissionNumber, err := ts.getNextSubmissionNumber(userDir)
+	if err != nil {
+		return fmt.Errorf("failed to get next submission number: %v", err)
+	}
+
+	// Define the submission directory path
+	submissionDir := filepath.Join(userDir, fmt.Sprintf("submission%d", submissionNumber))
+	outputDir := filepath.Join(submissionDir, "output")
+
+	// Create the submission directory and the empty output directory
+	err = os.MkdirAll(outputDir, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("failed to create submission or output directory: %v", err)
+	}
+
+	// Save the user's file in the submission directory with the correct extension
+	userFilePath := filepath.Join(submissionDir, "solution"+fileExtension)
+	if err := os.WriteFile(userFilePath, userFile, 0644); err != nil {
+		return fmt.Errorf("failed to save user file: %v", err)
+	}
+
+	return nil
+}
+
+// getNextSubmissionNumber determines the next submission number for a user by counting existing submissions.
+func (ts *TaskService) getNextSubmissionNumber(userDir string) (int, error) {
+	entries, err := os.ReadDir(userDir)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read user directory: %v", err)
+	}
+
+	submissionCount := 0
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), "submission") {
+			submissionCount++
+		}
+	}
+
+	return submissionCount + 1, nil
+}
+
+// isAllowedFileExtension checks if the given file extension is in the allowed list from the configuration.
+func (ts *TaskService) isAllowedFileExtension(extension string) bool {
+	for _, allowedExtension := range ts.config.AllowedFileTypes {
+		if extension == allowedExtension {
+			return true
+		}
+	}
+	return false
+}

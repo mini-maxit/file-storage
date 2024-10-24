@@ -109,3 +109,125 @@ func TestCreateTaskDirectory(t *testing.T) {
 		assert.Error(t, err, "expected an error due to mismatched input/output files")
 	})
 }
+
+// TestCreateUserSubmission tests the CreateUserSubmission function using subtests to describe different scenarios.
+func TestCreateUserSubmission(t *testing.T) {
+	rootDir, cleanup := createTempRootDir(t)
+	defer cleanup()
+
+	// Create a mock configuration with the temporary root directory
+	mockConfig := &config.Config{
+		RootDirectory:    rootDir,
+		AllowedFileTypes: []string{".c", ".cpp", ".py"}, // Allowed extensions
+	}
+
+	ts := NewTaskService(mockConfig)
+
+	// Subtest for creating the first submission for a user
+	t.Run("should create a new user submission directory", func(t *testing.T) {
+		userFileContent := []byte("int main() { return 0; }")
+		fileName := "solution.c"
+
+		// Create the first submission for user 1 and task 1
+		err := ts.CreateUserSubmission(1, 1, userFileContent, fileName)
+		assert.NoError(t, err, "expected no error when creating the first user submission")
+
+		// Verify the directory structure
+		userDir := filepath.Join(mockConfig.RootDirectory, "task1", "submissions", "user1")
+		assert.DirExists(t, userDir, "user directory should exist")
+
+		// Verify submission directory exists
+		submissionDir := filepath.Join(userDir, "submission1")
+		assert.DirExists(t, submissionDir, "submission1 directory should exist")
+
+		// Verify that the output directory exists
+		outputDir := filepath.Join(submissionDir, "output")
+		assert.DirExists(t, outputDir, "output directory should exist")
+
+		// Verify that the solution file exists and contains the correct content
+		solutionFile := filepath.Join(submissionDir, "solution.c")
+		assert.FileExists(t, solutionFile, "solution.c file should exist")
+
+		content, err := os.ReadFile(solutionFile)
+		assert.NoError(t, err, "expected no error when reading solution.c file")
+		assert.Equal(t, string(userFileContent), string(content), "solution.c content should match")
+	})
+
+	// Subtest for creating multiple submissions for the same user
+	t.Run("should create multiple submissions for the same user with incrementing submission numbers", func(t *testing.T) {
+		userFileContent := []byte("int main() { return 1; }")
+		fileName := "solution.c"
+
+		// Create a second submission for user 1 and task 1
+		err := ts.CreateUserSubmission(1, 1, userFileContent, fileName)
+		assert.NoError(t, err, "expected no error when creating the second user submission")
+
+		// Verify submission directory exists
+		submissionDir := filepath.Join(mockConfig.RootDirectory, "task1", "submissions", "user1", "submission2")
+		assert.DirExists(t, submissionDir, "submission2 directory should exist")
+
+		// Verify that the output directory exists
+		outputDir := filepath.Join(submissionDir, "output")
+		assert.DirExists(t, outputDir, "output directory should exist")
+
+		// Verify that the solution file exists and contains the correct content
+		solutionFile := filepath.Join(submissionDir, "solution.c")
+		assert.FileExists(t, solutionFile, "solution.c file should exist")
+
+		content, err := os.ReadFile(solutionFile)
+		assert.NoError(t, err, "expected no error when reading solution.c file")
+		assert.Equal(t, string(userFileContent), string(content), "solution.c content should match")
+	})
+
+	// Subtest for ensuring invalid file extensions return an error
+	t.Run("should return an error for unsupported file extensions", func(t *testing.T) {
+		userFileContent := []byte("#include <stdio.h>\nint main() { return 0; }")
+		fileName := "solution.java" // Unsupported file extension
+
+		// Attempt to create a submission with an unsupported file extension
+		err := ts.CreateUserSubmission(1, 2, userFileContent, fileName)
+		assert.Error(t, err, "expected an error when creating submission with unsupported file extension")
+		assert.Contains(t, err.Error(), "file extension '.java' is not allowed", "error message should mention unsupported file extension")
+	})
+
+	// Subtest for creating submissions for multiple users
+	t.Run("should create submissions for multiple users", func(t *testing.T) {
+		userFileContent := []byte("int main() { return 42; }")
+		fileName := "solution.c"
+
+		// Create a submission for user 2
+		err := ts.CreateUserSubmission(1, 2, userFileContent, fileName)
+		assert.NoError(t, err, "expected no error when creating submission for user 2")
+
+		// Verify the user directory exists
+		userDir := filepath.Join(mockConfig.RootDirectory, "task1", "submissions", "user2")
+		assert.DirExists(t, userDir, "user2 directory should exist")
+
+		// Verify the first submission directory exists
+		submissionDir := filepath.Join(userDir, "submission1")
+		assert.DirExists(t, submissionDir, "submission1 directory should exist")
+
+		// Verify that the output directory exists
+		outputDir := filepath.Join(submissionDir, "output")
+		assert.DirExists(t, outputDir, "output directory should exist")
+
+		// Verify that the solution file exists and contains the correct content
+		solutionFile := filepath.Join(submissionDir, "solution.c")
+		assert.FileExists(t, solutionFile, "solution.c file should exist")
+
+		content, err := os.ReadFile(solutionFile)
+		assert.NoError(t, err, "expected no error when reading solution.c file")
+		assert.Equal(t, string(userFileContent), string(content), "solution.c content should match")
+	})
+
+	// Subtest for trying to submit a file to a non-existent task
+	t.Run("should return an error when trying to submit to a non-existent task", func(t *testing.T) {
+		userFileContent := []byte("int main() { return 404; }")
+		fileName := "solution.c"
+
+		// Simulate the task directory not being created (taskID 999)
+		err := ts.CreateUserSubmission(999, 1, userFileContent, fileName)
+		assert.Error(t, err, "expected an error when trying to submit to a non-existent task")
+		assert.Contains(t, err.Error(), "invalid taskID: task directory does not exist", "error message should indicate failure due to missing task directory")
+	})
+}
