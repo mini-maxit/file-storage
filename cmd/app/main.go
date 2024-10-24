@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/mini-maxit/file-storage/internal/services"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -25,8 +26,10 @@ func main() {
 		logrus.Fatalf("failed to initialize root directory: %v", err)
 	}
 
+	taskService := services.NewTaskService(_config)
+
 	addr := ":" + _config.Port
-	_server := server.NewServer(init)
+	_server := server.NewServer(init, taskService)
 	err = _server.Run(addr)
 	if err != nil {
 		logrus.Fatalf("server stopped: %v", err)

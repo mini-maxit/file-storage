@@ -2,12 +2,13 @@ package server
 
 import (
 	"fmt"
+	"github.com/mini-maxit/file-storage/internal/api/http/initialization"
+	"github.com/mini-maxit/file-storage/internal/services"
+	"github.com/sirupsen/logrus"
 	"io"
 	"net/http"
 	"os"
-
-	"github.com/mini-maxit/file-storage/internal/api/http/initialization"
-	"github.com/sirupsen/logrus"
+	"strconv"
 )
 
 type Server struct {
@@ -19,7 +20,7 @@ func (s *Server) Run(addr string) error {
 	return http.ListenAndServe(addr, s.mux)
 }
 
-func NewServer(init *initialization.Initialization) *Server {
+func NewServer(init *initialization.Initialization, ts *services.TaskService) *Server {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +94,105 @@ func NewServer(init *initialization.Initialization) *Server {
 
 		// Copy the file data to the response writer
 		io.Copy(w, file)
+	})
+
+	mux.HandleFunc("/createTask", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Limit the size of the incoming request
+		r.Body = http.MaxBytesReader(w, r.Body, 50*1024*1024) // 50 MB limit
+
+		// Parse the multipart form data
+		if err := r.ParseMultipartForm(50 << 20); err != nil {
+			http.Error(w, "The uploaded files are too large.", http.StatusBadRequest)
+			return
+		}
+
+		// Extract 'taskID' from form data
+		taskIDStr := r.FormValue("taskID")
+		if taskIDStr == "" {
+			http.Error(w, "taskID is required.", http.StatusBadRequest)
+			return
+		}
+		taskID, err := strconv.Atoi(taskIDStr)
+		if err != nil {
+			http.Error(w, "Invalid taskID.", http.StatusBadRequest)
+			return
+		}
+
+		// Extract 'overwrite' flag from form data
+		overwriteStr := r.FormValue("overwrite")
+		overwrite := false
+		if overwriteStr != "" {
+			overwrite, err = strconv.ParseBool(overwriteStr)
+			if err != nil {
+				http.Error(w, "Invalid overwrite flag.", http.StatusBadRequest)
+				return
+			}
+		}
+
+		// Prepare the files map
+		filesMap := make(map[string][]byte)
+
+		// Process the description file
+		descriptionFile, _, err := r.FormFile("description")
+		if err != nil {
+			http.Error(w, "Description file is required.", http.StatusBadRequest)
+			return
+		}
+		defer descriptionFile.Close()
+		descriptionContent, err := io.ReadAll(descriptionFile)
+		if err != nil {
+			http.Error(w, "Failed to read description file.", http.StatusInternalServerError)
+			return
+		}
+		filesMap["src/description.pdf"] = descriptionContent
+
+		// Process input files
+		inputFiles := r.MultipartForm.File["inputFiles"]
+		for _, fileHeader := range inputFiles {
+			file, err := fileHeader.Open()
+			if err != nil {
+				http.Error(w, "Failed to open input file.", http.StatusInternalServerError)
+				return
+			}
+			defer file.Close()
+			content, err := io.ReadAll(file)
+			if err != nil {
+				http.Error(w, "Failed to read input file.", http.StatusInternalServerError)
+				return
+			}
+			filesMap["src/input/"+fileHeader.Filename] = content
+		}
+
+		// Process output files
+		outputFiles := r.MultipartForm.File["outputFiles"]
+		for _, fileHeader := range outputFiles {
+			file, err := fileHeader.Open()
+			if err != nil {
+				http.Error(w, "Failed to open output file.", http.StatusInternalServerError)
+				return
+			}
+			defer file.Close()
+			content, err := io.ReadAll(file)
+			if err != nil {
+				http.Error(w, "Failed to read output file.", http.StatusInternalServerError)
+				return
+			}
+			filesMap["src/output/"+fileHeader.Filename] = content
+		}
+
+		// Invoke the service function
+		err = ts.CreateTaskDirectory(taskID, filesMap, overwrite)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create task directory: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Write([]byte("Task directory created successfully"))
 	})
 
 	return &Server{mux: mux}
