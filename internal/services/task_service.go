@@ -378,6 +378,84 @@ func (ts *TaskService) GetUserSubmission(taskID int, userID int, submissionNum i
 	return fileContent, programFile, nil
 }
 
+// GetInputOutput retrieves the specific input and output files for a given task and returns them in a .tar.gz archive.
+// This is useful for accessing specific input/output pairs based on their ID.
+func (ts *TaskService) GetInputOutput(taskID int, inputOutputID int) (string, error) {
+	// Define paths for the task and the specific input/output directories
+	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+	inputDir := filepath.Join(taskDir, "src", "input")
+	outputDir := filepath.Join(taskDir, "src", "output")
+
+	// Check if the task's input and output directories exist
+	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
+		return "", fmt.Errorf("input directory does not exist for task %d", taskID)
+	}
+	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
+		return "", fmt.Errorf("output directory does not exist for task %d", taskID)
+	}
+
+	// Locate specific input and output files based on inputOutputID
+	inputFilePath := filepath.Join(inputDir, fmt.Sprintf("%d.in.txt", inputOutputID))
+	outputFilePath := filepath.Join(outputDir, fmt.Sprintf("%d.out.txt", inputOutputID))
+
+	// Ensure the input and output files exist
+	if _, err := os.Stat(inputFilePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("input file %d.in.txt does not exist for task %d", inputOutputID, taskID)
+	}
+	if _, err := os.Stat(outputFilePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("output file %d.out.txt does not exist for task %d", inputOutputID, taskID)
+	}
+
+	// Create a temporary .tar.gz file
+	tarFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("task%d_inputOutput%d.tar.gz", taskID, inputOutputID))
+	tarFile, err := os.Create(tarFilePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary tar file: %v", err)
+	}
+	defer tarFile.Close()
+
+	// Initialize gzip writer
+	gzipWriter := gzip.NewWriter(tarFile)
+	defer gzipWriter.Close()
+
+	// Initialize tar writer
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+
+	// Add input and output files to the TAR archive with only the base filename
+	for _, filePath := range []string{inputFilePath, outputFilePath} {
+		// Open the file to read content
+		file, err := os.Open(filePath)
+		if err != nil {
+			return "", fmt.Errorf("failed to open file %s: %v", filePath, err)
+		}
+		defer file.Close()
+
+		// Gather file info and set up the TAR header
+		info, err := file.Stat()
+		if err != nil {
+			return "", fmt.Errorf("failed to get file info for %s: %v", filePath, err)
+		}
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return "", fmt.Errorf("failed to create tar header for file %s: %v", filePath, err)
+		}
+		// Use only the base filename for header.Name to avoid folder structure
+		header.Name = info.Name()
+
+		// Write the header and file content to the TAR archive
+		if err := tarWriter.WriteHeader(header); err != nil {
+			return "", fmt.Errorf("failed to write tar header for file %s: %v", filePath, err)
+		}
+		if _, err := io.Copy(tarWriter, file); err != nil {
+			return "", fmt.Errorf("failed to write file %s to tar: %v", filePath, err)
+		}
+	}
+
+	// Return the path to the created TAR.GZ file
+	return tarFilePath, nil
+}
+
 // backupDirectory creates a backup of an existing directory in a temporary location.
 func (ts *TaskService) backupDirectory(taskDir string) (string, error) {
 	backupDir, err := os.MkdirTemp("", "task_backup_*")

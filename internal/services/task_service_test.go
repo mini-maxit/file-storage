@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -586,4 +587,155 @@ func TestGetUserSubmission(t *testing.T) {
 		assert.Error(t, err, "expected an error when multiple program files are found")
 		assert.Contains(t, err.Error(), "multiple program files found", "error message should indicate multiple program files")
 	})
+}
+
+func TestGetInputOutput(t *testing.T) {
+	// Set up a temporary root directory
+	rootDir, cleanup := createTempRootDir(t)
+	defer cleanup()
+
+	// Initialize TaskService with the mock configuration
+	mockConfig := &config.Config{
+		RootDirectory: rootDir,
+	}
+	ts := NewTaskService(mockConfig)
+
+	// Helper function to create input and output files for a task
+	createInputOutputFiles := func(taskID, inputOutputID int) error {
+		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID), "src")
+		inputDir := filepath.Join(taskDir, "input")
+		outputDir := filepath.Join(taskDir, "output")
+
+		// Create input and output directories and files
+		err := os.MkdirAll(inputDir, os.ModePerm)
+		if err != nil {
+			return fmt.Errorf("failed to create input directory: %v", err)
+		}
+		err = os.MkdirAll(outputDir, os.ModePerm)
+		if err != nil {
+			return fmt.Errorf("failed to create output directory: %v", err)
+		}
+
+		// Create specific input and output files
+		inputFilePath := filepath.Join(inputDir, fmt.Sprintf("%d.in.txt", inputOutputID))
+		outputFilePath := filepath.Join(outputDir, fmt.Sprintf("%d.out.txt", inputOutputID))
+		err = os.WriteFile(inputFilePath, []byte("Test input content"), 0644)
+		if err != nil {
+			return fmt.Errorf("failed to create input file: %v", err)
+		}
+		err = os.WriteFile(outputFilePath, []byte("Test output content"), 0644)
+		if err != nil {
+			return fmt.Errorf("failed to create output file: %v", err)
+		}
+
+		return nil
+	}
+
+	// Subtest for successfully retrieving input and output files
+	t.Run("should retrieve specified input and output files in a tar.gz format", func(t *testing.T) {
+		taskID := 1
+		inputOutputID := 1
+
+		// Set up task files
+		err := createInputOutputFiles(taskID, inputOutputID)
+		assert.NoError(t, err, "expected no error in creating input and output files")
+
+		// Call GetInputOutput and verify result
+		tarFilePath, err := ts.GetInputOutput(taskID, inputOutputID)
+		assert.NoError(t, err, "expected no error retrieving input/output files")
+		assert.FileExists(t, tarFilePath, "tar.gz file should be created")
+
+		// Verify tar file contents
+		verifyTarContents(t, tarFilePath, inputOutputID)
+	})
+
+	// Subtest for handling missing input file
+	t.Run("should return an error if input file is missing", func(t *testing.T) {
+		taskID := 2
+		inputOutputID := 1
+
+		// Only create the output file
+		err := os.MkdirAll(filepath.Join(rootDir, fmt.Sprintf("task%d/src/output", taskID)), os.ModePerm)
+		assert.NoError(t, err)
+		err = os.MkdirAll(filepath.Join(rootDir, fmt.Sprintf("task%d/src/input", taskID)), os.ModePerm)
+		assert.NoError(t, err)
+		err = os.WriteFile(filepath.Join(rootDir, fmt.Sprintf("task%d/src/output", taskID), fmt.Sprintf("%d.out.txt", inputOutputID)), []byte("Output content"), 0644)
+		assert.NoError(t, err)
+
+		// Try to retrieve input/output and expect an error
+		_, err = ts.GetInputOutput(taskID, inputOutputID)
+		assert.Error(t, err, "expected an error for missing input file")
+		assert.Regexp(t, `input file \d+\.in\.txt does not exist for task \d+`, err.Error(), "error should mention missing input file")
+	})
+
+	// Subtest for handling missing output file
+	t.Run("should return an error if output file is missing", func(t *testing.T) {
+		taskID := 3
+		inputOutputID := 1
+
+		// Only create the input file
+		err := os.MkdirAll(filepath.Join(rootDir, fmt.Sprintf("task%d/src/output", taskID)), os.ModePerm)
+		assert.NoError(t, err)
+		err = os.MkdirAll(filepath.Join(rootDir, fmt.Sprintf("task%d/src/input", taskID)), os.ModePerm)
+		assert.NoError(t, err)
+		err = os.WriteFile(filepath.Join(rootDir, fmt.Sprintf("task%d/src/input", taskID), fmt.Sprintf("%d.in.txt", inputOutputID)), []byte("Input content"), 0644)
+		assert.NoError(t, err)
+
+		// Try to retrieve input/output and expect an error
+		_, err = ts.GetInputOutput(taskID, inputOutputID)
+		assert.Error(t, err, "expected an error for missing output file")
+		assert.Regexp(t, `output file \d+\.out\.txt does not exist for task \d+`, err.Error(), "error should mention missing input file")
+	})
+}
+
+// Helper function to verify contents of a tar.gz file
+func verifyTarContents(t *testing.T, tarFilePath string, inputOutputID int) {
+	// Open tar.gz file
+	tarFile, err := os.Open(tarFilePath)
+	assert.NoError(t, err, "expected no error opening tar.gz file")
+	defer tarFile.Close()
+
+	// Initialize gzip and tar readers
+	gzipReader, err := gzip.NewReader(tarFile)
+	assert.NoError(t, err, "expected no error creating gzip reader")
+	defer gzipReader.Close()
+
+	tarReader := tar.NewReader(gzipReader)
+
+	// Expected files directly in the archive (only filenames, no paths)
+	expectedFiles := map[string]string{
+		fmt.Sprintf("%d.in.txt", inputOutputID):  "Test input content",
+		fmt.Sprintf("%d.out.txt", inputOutputID): "Test output content",
+	}
+
+	// Track found files
+	foundFiles := make(map[string]bool)
+
+	// Check tar file contents
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		assert.NoError(t, err, "expected no error reading tar header")
+
+		// Only the base name of the file is expected
+		baseName := header.Name
+		_, existsInExpected := expectedFiles[baseName]
+
+		// Check if the extracted file exists in expectedFiles
+		if existsInExpected {
+			foundFiles[baseName] = true
+
+			// Use io.ReadAll to read the full content of the file in the archive
+			content, err := io.ReadAll(tarReader)
+			assert.NoError(t, err, "expected no error reading file content")
+			assert.Equal(t, expectedFiles[baseName], string(content), "file content should match expected content")
+		}
+	}
+
+	// Ensure all expected files were found
+	for filePath := range expectedFiles {
+		assert.True(t, foundFiles[filePath], fmt.Sprintf("file %s should be in the archive", filePath))
+	}
 }

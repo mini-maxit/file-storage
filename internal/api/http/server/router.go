@@ -24,79 +24,6 @@ func (s *Server) Run(addr string) error {
 func NewServer(init *initialization.Initialization, ts *services.TaskService) *Server {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Hello World!"))
-	},
-	)
-
-	mux.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024) // 10 MB
-		if err := r.ParseMultipartForm(10 << 20); err != nil {
-			http.Error(w, "The uploaded file is too large.", http.StatusBadRequest)
-			return
-		}
-
-		// Get the uploaded files
-		files := r.MultipartForm.File["fileupload"] // "fileupload" is the form field name for the file input
-		if len(files) == 0 {
-			http.Error(w, "No files uploaded.", http.StatusBadRequest)
-			return
-		}
-
-		for _, fileHeader := range files {
-			file, err := fileHeader.Open()
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			defer file.Close()
-
-			// Create a file on the server to store the uploaded file
-			f, err := os.OpenFile(fmt.Sprintf("./downloaded/%s", fileHeader.Filename), os.O_WRONLY|os.O_CREATE, 0666)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			defer f.Close()
-
-			// Copy the uploaded file data to the server file
-			io.Copy(f, file)
-		}
-		w.Write([]byte("File uploaded successfully"))
-	})
-
-	mux.HandleFunc("/download/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		fileName := r.URL.Path[len("/download/"):]
-		file, err := os.Open(fmt.Sprintf("./downloaded/%s", fileName))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer file.Close()
-
-		// Set the header for the file
-		fileStat, err := file.Stat()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileStat.Size()))
-
-		// Copy the file data to the response writer
-		io.Copy(w, file)
-	})
-
 	mux.HandleFunc("/createTask", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -483,6 +410,67 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 		// Write file content to the response
 		if _, err := w.Write(fileContent); err != nil {
 			http.Error(w, "Failed to write file content to response", http.StatusInternalServerError)
+			return
+		}
+	})
+
+	mux.HandleFunc("/getInputOutput", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract parameters
+		taskIDStr := r.URL.Query().Get("taskID")
+		if taskIDStr == "" {
+			http.Error(w, "taskID is required.", http.StatusBadRequest)
+			return
+		}
+
+		inputOutputIDStr := r.URL.Query().Get("inputOutputID")
+		if inputOutputIDStr == "" {
+			http.Error(w, "inputOutputID is required.", http.StatusBadRequest)
+			return
+		}
+
+		// Convert parameters to integers
+		taskID, err := strconv.Atoi(taskIDStr)
+		if err != nil {
+			http.Error(w, "Invalid taskID.", http.StatusBadRequest)
+			return
+		}
+
+		inputOutputID, err := strconv.Atoi(inputOutputIDStr)
+		if err != nil {
+			http.Error(w, "Invalid inputOutputID.", http.StatusBadRequest)
+			return
+		}
+
+		// Call GetTaskFiles to retrieve the task files as a .tar.gz archive
+		tarFilePath, err := ts.GetInputOutput(taskID, inputOutputID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to retrieve Input and Output files: %v", err), http.StatusInternalServerError)
+			return
+		}
+		defer os.Remove(tarFilePath)
+
+		// Open the .tar.gz file
+		tarFile, err := os.Open(tarFilePath)
+		if err != nil {
+			http.Error(w, "Failed to open files archive.", http.StatusInternalServerError)
+			return
+		}
+		defer tarFile.Close()
+
+		// Set headers and serve the .tar.gz file
+		w.Header().Set("Content-Type", "application/gzip")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=Task%dInputOutput%dFiles.tar.gz", taskID, inputOutputID))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", helpers.FileSize(tarFile)))
+
+		// Stream the file content to the response
+		_, err = io.Copy(w, tarFile)
+		if err != nil {
+			http.Error(w, "Failed to send task files archive.", http.StatusInternalServerError)
 			return
 		}
 	})

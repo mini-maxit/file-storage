@@ -148,3 +148,23 @@ Request example:
 #### Response:
 - Success: Returns a file containing user's solution for the requested submission
 - Failure: 400 or 500 error code with a specific error message.
+
+### 5. Get Input/Output Files
+    Endpoint: /getInputOutput
+    Method: GET
+    Description: Retrieves specific input and output files for a given task.
+
+#### Query Params
+- taskID (required): Integer ID of the task.
+- inputOutputID (required): Integer ID of the input/output of the task.
+
+Request example:
+
+```bash
+  curl --location 'http://localhost:8080/getInputOutput?taskID=123&inputOutputID=1'
+```
+
+#### Response:
+- Success: Returns a .tar.gz file containing the task's src folder, named as Task{taskID}InputOutput{inputOutputID}Files.tar.gz. The archive includes:
+  - input and output files
+- Failure: 400 or 500 error code with a specific error message.
