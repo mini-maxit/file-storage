@@ -107,3 +107,24 @@ This API enables users to manage tasks, submit files, and store outputs generate
     - 200 OK with "Output files stored successfully" if outputs were provided.
     - 200 OK with "Error file stored successfully" if error was provided.
 - Failure: 400 or 500 error code with a specific error message.
+
+### 4. GetTaskFiles
+    Endpoint: /getTaskFiles
+    Method: GET
+    Description: Retrieves all files (description, input, and output) for a given task.
+
+#### Query Params
+- taskID (required): Integer ID of the task.
+
+Request example:
+
+```bash
+  curl --location 'http://localhost:8080/getTaskFiles?taskID=123'
+```
+
+#### Response:
+- Success: Returns a .tar.gz file containing the task's src folder, named as task{taskID}Files.tar.gz. The archive includes:
+  - description.pdf file if present
+  - input/ folder with all input .txt files
+  - output/ folder with all output .txt files 
+- Failure: 400 or 500 error code with a specific error message.

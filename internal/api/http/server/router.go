@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"github.com/mini-maxit/file-storage/internal/api/http/initialization"
+	"github.com/mini-maxit/file-storage/internal/helpers"
 	"github.com/mini-maxit/file-storage/internal/services"
 	"github.com/sirupsen/logrus"
 	"io"
@@ -369,6 +370,54 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 				return
 			}
 			w.Write([]byte("Error file stored successfully"))
+			return
+		}
+	})
+
+	mux.HandleFunc("/getTaskFiles", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract 'taskID' from query parameters
+		taskIDStr := r.URL.Query().Get("taskID")
+		if taskIDStr == "" {
+			http.Error(w, "taskID is required.", http.StatusBadRequest)
+			return
+		}
+
+		taskID, err := strconv.Atoi(taskIDStr)
+		if err != nil {
+			http.Error(w, "Invalid taskID.", http.StatusBadRequest)
+			return
+		}
+
+		// Call GetTaskFiles to retrieve the task files as a .tar.gz archive
+		tarFilePath, err := ts.GetTaskFiles(taskID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to retrieve task files: %v", err), http.StatusInternalServerError)
+			return
+		}
+		defer os.Remove(tarFilePath)
+
+		// Open the .tar.gz file
+		tarFile, err := os.Open(tarFilePath)
+		if err != nil {
+			http.Error(w, "Failed to open task files archive.", http.StatusInternalServerError)
+			return
+		}
+		defer tarFile.Close()
+
+		// Set headers and serve the .tar.gz file
+		w.Header().Set("Content-Type", "application/gzip")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=task%dFiles.tar.gz", taskID))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", helpers.FileSize(tarFile)))
+
+		// Stream the file content to the response
+		_, err = io.Copy(w, tarFile)
+		if err != nil {
+			http.Error(w, "Failed to send task files archive.", http.StatusInternalServerError)
 			return
 		}
 	})

@@ -1,6 +1,8 @@
 package services
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -254,6 +256,84 @@ func (ts *TaskService) StoreUserOutputs(taskID int, userID int, submissionNumber
 	}
 
 	return nil
+}
+
+// GetTaskFiles retrieves all files (description, input, and output) for a given task and returns them in a .tar.gz file.
+// This function is useful for fetching the entire task content, preserving the folder structure.
+func (ts *TaskService) GetTaskFiles(taskID int) (string, error) {
+	// Define paths for the task and src directories
+	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+	srcDir := filepath.Join(taskDir, "src")
+
+	// Check if the src directory exists
+	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+		return "", fmt.Errorf("task src directory does not exist for task %d", taskID)
+	}
+
+	// Create a temporary file for the TAR.GZ archive
+	tarFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("task%dFiles.tar.gz", taskID))
+	tarFile, err := os.Create(tarFilePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary tar file: %v", err)
+	}
+	defer tarFile.Close()
+
+	// Initialize gzip writer
+	gzipWriter := gzip.NewWriter(tarFile)
+	defer gzipWriter.Close()
+
+	// Initialize tar writer
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+
+	// Walk through the src directory and add files to the TAR archive
+	err = filepath.Walk(srcDir, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Determine relative path for maintaining directory structure
+		relPath, err := filepath.Rel(filepath.Dir(srcDir), filePath) // root folder for src
+		if err != nil {
+			return fmt.Errorf("failed to determine relative path for file %s: %v", filePath, err)
+		}
+
+		// Set up the TAR header
+		header, err := tar.FileInfoHeader(info, info.Name())
+		if err != nil {
+			return fmt.Errorf("failed to create tar header for file %s: %v", filePath, err)
+		}
+		header.Name = filepath.Join(fmt.Sprintf("task%dFiles", taskID), relPath)
+
+		// Write the header
+		if err := tarWriter.WriteHeader(header); err != nil {
+			return fmt.Errorf("failed to write tar header for file %s: %v", filePath, err)
+		}
+
+		// If it's a directory, skip writing the content
+		if info.IsDir() {
+			return nil
+		}
+
+		// Write the file content
+		file, err := os.Open(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to open file %s: %v", filePath, err)
+		}
+		defer file.Close()
+
+		if _, err := io.Copy(tarWriter, file); err != nil {
+			return fmt.Errorf("failed to write file %s to tar: %v", filePath, err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to add files to tar: %v", err)
+	}
+
+	// Return the path to the created TAR.GZ file
+	return tarFilePath, nil
 }
 
 // backupDirectory creates a backup of an existing directory in a temporary location.

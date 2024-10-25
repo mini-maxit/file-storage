@@ -1,6 +1,8 @@
 package services
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,7 +31,6 @@ func createTempRootDir(t *testing.T) (string, func()) {
 	}
 }
 
-// TestCreateTaskDirectory tests the createTaskDirectory function using subtests to describe different scenarios.
 func TestCreateTaskDirectory(t *testing.T) {
 	rootDir, cleanup := createTempRootDir(t)
 	defer cleanup()
@@ -150,7 +151,6 @@ func TestCreateTaskDirectory(t *testing.T) {
 	})
 }
 
-// TestCreateUserSubmission tests the CreateUserSubmission function using subtests to describe different scenarios.
 func TestCreateUserSubmission(t *testing.T) {
 	rootDir, cleanup := createTempRootDir(t)
 	defer cleanup()
@@ -283,7 +283,6 @@ func TestCreateUserSubmission(t *testing.T) {
 	})
 }
 
-// TestStoreUserOutputs tests the StoreUserOutputs function using subtests to describe different scenarios.
 func TestStoreUserOutputs(t *testing.T) {
 	rootDir, cleanup := createTempRootDir(t)
 	defer cleanup()
@@ -413,5 +412,88 @@ func TestStoreUserOutputs(t *testing.T) {
 		err := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
 		assert.Error(t, err, "expected an error when number of user outputs does not match task's expected outputs")
 		assert.Contains(t, err.Error(), "number of output files does not match the expected number", "error message should indicate output count mismatch")
+	})
+}
+
+func TestGetTaskFiles(t *testing.T) {
+	rootDir, cleanup := createTempRootDir(t)
+	defer cleanup()
+
+	// Mock configuration
+	mockConfig := &config.Config{RootDirectory: rootDir}
+	ts := NewTaskService(mockConfig)
+
+	// Helper function to set up a sample task directory structure with files for testing
+	createSampleTaskDir := func(taskID int) {
+		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID), "src")
+		inputDir := filepath.Join(taskDir, "input")
+		outputDir := filepath.Join(taskDir, "output")
+
+		// Create task directories and sample files
+		err := os.MkdirAll(inputDir, os.ModePerm)
+		assert.NoError(t, err, "failed to create input directory")
+
+		err = os.MkdirAll(outputDir, os.ModePerm)
+		assert.NoError(t, err, "failed to create output directory")
+
+		err = os.WriteFile(filepath.Join(taskDir, "description.pdf"), []byte("Task description content"), 0644)
+		assert.NoError(t, err, "failed to create description file")
+
+		err = os.WriteFile(filepath.Join(inputDir, "1.in.txt"), []byte("Input file 1 content"), 0644)
+		assert.NoError(t, err, "failed to create input file")
+
+		err = os.WriteFile(filepath.Join(outputDir, "1.out.txt"), []byte("Output file 1 content"), 0644)
+		assert.NoError(t, err, "failed to create output file")
+	}
+
+	// Subtest for successful .tar.gz creation
+	t.Run("should create a .tar.gz with the expected structure and files", func(t *testing.T) {
+		taskID := 1
+		createSampleTaskDir(taskID)
+
+		// Call the function to test
+		tarFilePath, err := ts.GetTaskFiles(taskID)
+		assert.NoError(t, err, "expected no error when creating task archive")
+		assert.FileExists(t, tarFilePath, "expected the tar file to be created")
+
+		// Open the created .tar.gz file and verify its contents
+		tarFile, err := os.Open(tarFilePath)
+		assert.NoError(t, err, "failed to open created .tar.gz file")
+		defer tarFile.Close()
+
+		// Initialize gzip and tar readers
+		gzipReader, err := gzip.NewReader(tarFile)
+		assert.NoError(t, err, "failed to create gzip reader")
+		defer gzipReader.Close()
+
+		tarReader := tar.NewReader(gzipReader)
+		filesFound := map[string]bool{
+			"task1Files/src/description.pdf":  false,
+			"task1Files/src/input/1.in.txt":   false,
+			"task1Files/src/output/1.out.txt": false,
+		}
+
+		for {
+			header, err := tarReader.Next()
+			if err != nil {
+				break
+			}
+			if _, exists := filesFound[header.Name]; exists {
+				filesFound[header.Name] = true
+			}
+		}
+
+		// Verify all expected files were included
+		for fileName, found := range filesFound {
+			assert.True(t, found, "expected file %s to be present in the archive", fileName)
+		}
+	})
+
+	// Subtest for error when src directory is missing
+	t.Run("should return an error when src directory is missing", func(t *testing.T) {
+		taskID := 2
+		tarFilePath, err := ts.GetTaskFiles(taskID)
+		assert.Error(t, err, "expected an error when src directory is missing")
+		assert.Empty(t, tarFilePath, "expected no tar file to be created when src directory is missing")
 	})
 }
