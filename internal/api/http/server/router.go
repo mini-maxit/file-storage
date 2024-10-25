@@ -422,5 +422,70 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 		}
 	})
 
+	mux.HandleFunc("/getUserSubmission", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract 'taskID' from query parameters
+		taskIDStr := r.URL.Query().Get("taskID")
+		if taskIDStr == "" {
+			http.Error(w, "taskID is required.", http.StatusBadRequest)
+			return
+		}
+
+		// Extract 'userID' from query parameters
+		userIDStr := r.URL.Query().Get("userID")
+		if userIDStr == "" {
+			http.Error(w, "userID is required.", http.StatusBadRequest)
+			return
+		}
+
+		// Extract 'submissionNumber' from query parameters
+		submissionNumberStr := r.URL.Query().Get("submissionNumber")
+		if submissionNumberStr == "" {
+			http.Error(w, "submissionNumber is required.", http.StatusBadRequest)
+			return
+		}
+
+		// Convert parameters to integers
+		taskID, err := strconv.Atoi(taskIDStr)
+		if err != nil {
+			http.Error(w, "Invalid taskID.", http.StatusBadRequest)
+			return
+		}
+
+		userID, err := strconv.Atoi(userIDStr)
+		if err != nil {
+			http.Error(w, "Invalid userID.", http.StatusBadRequest)
+			return
+		}
+
+		submissionNumber, err := strconv.Atoi(submissionNumberStr)
+		if err != nil {
+			http.Error(w, "Invalid submission number.", http.StatusBadRequest)
+			return
+		}
+
+		// Retrieve the user's submission file content
+		fileContent, fileName, err := ts.GetUserSubmission(taskID, userID, submissionNumber)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to retrieve submission file: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Set response headers to prompt file download with the original file name
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileContent)))
+
+		// Write file content to the response
+		if _, err := w.Write(fileContent); err != nil {
+			http.Error(w, "Failed to write file content to response", http.StatusInternalServerError)
+			return
+		}
+	})
+
 	return &Server{mux: mux}
 }

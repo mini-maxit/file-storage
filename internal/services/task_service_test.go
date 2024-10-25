@@ -497,3 +497,93 @@ func TestGetTaskFiles(t *testing.T) {
 		assert.Empty(t, tarFilePath, "expected no tar file to be created when src directory is missing")
 	})
 }
+
+func TestGetUserSubmission(t *testing.T) {
+	// Create a temporary root directory for tests
+	rootDir, cleanup := createTempRootDir(t)
+	defer cleanup()
+
+	// Create a mock configuration with the temporary root directory
+	mockConfig := &config.Config{
+		RootDirectory: rootDir,
+	}
+
+	// Initialize the TaskService with the mock configuration
+	ts := NewTaskService(mockConfig)
+
+	// Helper function to set up a submission directory and add a program file
+	createSubmission := func(taskID, userID, submissionNum int, fileName, fileContent string) error {
+		submissionDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID), "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
+		err := os.MkdirAll(submissionDir, os.ModePerm)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(submissionDir, fileName), []byte(fileContent), 0644)
+	}
+
+	// Subtest: Retrieve a single valid program file
+	t.Run("should retrieve the program file for a valid submission", func(t *testing.T) {
+		taskID := 1
+		userID := 1
+		submissionNum := 1
+		programFileName := "solution.c"
+		programContent := "int main() { return 0; }"
+
+		// Set up a valid submission directory
+		err := createSubmission(taskID, userID, submissionNum, programFileName, programContent)
+		assert.NoError(t, err, "expected no error in creating submission directory")
+
+		// Retrieve the submission
+		content, _, err := ts.GetUserSubmission(taskID, userID, submissionNum)
+		assert.NoError(t, err, "expected no error when retrieving the program file")
+		assert.Equal(t, programContent, string(content), "program content should match")
+	})
+
+	// Subtest: Error when submission directory does not exist
+	t.Run("should return an error if submission directory does not exist", func(t *testing.T) {
+		taskID := 2
+		userID := 1
+		submissionNum := 1
+
+		// Attempt to retrieve a submission from a non-existent directory
+		_, _, err := ts.GetUserSubmission(taskID, userID, submissionNum)
+		assert.Error(t, err, "expected an error when submission directory does not exist")
+		assert.Contains(t, err.Error(), "submission directory does not exist", "error message should indicate missing directory")
+	})
+
+	// Subtest: Error when no program file exists in the submission directory
+	t.Run("should return an error if no program file is found", func(t *testing.T) {
+		taskID := 3
+		userID := 1
+		submissionNum := 1
+
+		// Create an empty submission directory without a program file
+		submissionDir := filepath.Join(rootDir, "task3", "submissions", "user1", "submission1")
+		err := os.MkdirAll(submissionDir, os.ModePerm)
+		assert.NoError(t, err, "expected no error in creating empty submission directory")
+
+		// Attempt to retrieve a program file from the empty directory
+		_, _, err = ts.GetUserSubmission(taskID, userID, submissionNum)
+		assert.Error(t, err, "expected an error when no program file is found")
+		assert.Contains(t, err.Error(), "no program file found", "error message should indicate missing program file")
+	})
+
+	// Subtest: Error when multiple program files exist in the submission directory
+	t.Run("should return an error if multiple program files are found", func(t *testing.T) {
+		taskID := 4
+		userID := 1
+		submissionNum := 1
+		programContent := "int main() { return 0; }"
+
+		// Set up a submission directory with multiple program files
+		err := createSubmission(taskID, userID, submissionNum, "solution1.c", programContent)
+		assert.NoError(t, err, "expected no error in creating first program file")
+		err = createSubmission(taskID, userID, submissionNum, "solution2.c", programContent)
+		assert.NoError(t, err, "expected no error in creating second program file")
+
+		// Attempt to retrieve the program file
+		_, _, err = ts.GetUserSubmission(taskID, userID, submissionNum)
+		assert.Error(t, err, "expected an error when multiple program files are found")
+		assert.Contains(t, err.Error(), "multiple program files found", "error message should indicate multiple program files")
+	})
+}

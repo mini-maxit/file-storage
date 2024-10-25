@@ -108,7 +108,7 @@ This API enables users to manage tasks, submit files, and store outputs generate
     - 200 OK with "Error file stored successfully" if error was provided.
 - Failure: 400 or 500 error code with a specific error message.
 
-### 4. GetTaskFiles
+### 4. Get Task Files
     Endpoint: /getTaskFiles
     Method: GET
     Description: Retrieves all files (description, input, and output) for a given task.
@@ -127,4 +127,24 @@ Request example:
   - description.pdf file if present
   - input/ folder with all input .txt files
   - output/ folder with all output .txt files 
+- Failure: 400 or 500 error code with a specific error message.
+
+### 5. Get User Submission
+    Endpoint: /getUserSubmission
+    Method: GET
+    Description: Fetches the specific submission file for a user. It will replace the current getFiles from solution.go. For now it should check if there is only one program file.
+
+#### Query Params
+- taskID (required): Integer ID of the task.
+- userID (required): Integer ID of the user.
+- submissionNumber (required): Integer indicating the submission version for which the output files are stored.
+
+Request example:
+
+```bash
+  curl --location 'http://localhost:8080/getUserSubmission?taskID=123&userID=1&submissionNumber=1'
+```
+
+#### Response:
+- Success: Returns a file containing user's solution for the requested submission
 - Failure: 400 or 500 error code with a specific error message.

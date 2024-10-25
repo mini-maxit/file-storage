@@ -336,6 +336,48 @@ func (ts *TaskService) GetTaskFiles(taskID int) (string, error) {
 	return tarFilePath, nil
 }
 
+// GetUserSubmission fetches the specific submission file for a user in a given task.
+func (ts *TaskService) GetUserSubmission(taskID int, userID int, submissionNum int) ([]byte, string, error) {
+	// Define the path to the specific submission directory
+	submissionDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID), "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
+
+	// Check if the submission directory exists
+	if _, err := os.Stat(submissionDir); os.IsNotExist(err) {
+		return nil, "", fmt.Errorf("submission directory does not exist for task %d, user %d, submission %d", taskID, userID, submissionNum)
+	}
+
+	// Read files in the submission directory to locate the program file
+	files, err := os.ReadDir(submissionDir)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read submission directory: %v", err)
+	}
+
+	// Find the single program file in the directory
+	var programFile string
+	for _, file := range files {
+		if !file.IsDir() && strings.HasPrefix(file.Name(), "solution") {
+			if programFile != "" {
+				return nil, "", fmt.Errorf("multiple program files found in submission %d for user %d in task %d", submissionNum, userID, taskID)
+			}
+			programFile = file.Name()
+		}
+	}
+
+	// Check if a program file was found
+	if programFile == "" {
+		return nil, "", fmt.Errorf("no program file found in submission %d for user %d in task %d", submissionNum, userID, taskID)
+	}
+
+	// Read the content of the program file
+	programFilePath := filepath.Join(submissionDir, programFile)
+	fileContent, err := os.ReadFile(programFilePath)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read program file %s: %v", programFile, err)
+	}
+
+	return fileContent, programFile, nil
+}
+
 // backupDirectory creates a backup of an existing directory in a temporary location.
 func (ts *TaskService) backupDirectory(taskDir string) (string, error) {
 	backupDir, err := os.MkdirTemp("", "task_backup_*")
