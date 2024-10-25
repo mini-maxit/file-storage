@@ -255,5 +255,123 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 		w.Write([]byte("Submission created successfully"))
 	})
 
+	mux.HandleFunc("/storeOutputs", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Limit the size of the incoming request to 10 MB
+		r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024)
+
+		// Parse the multipart form data
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			http.Error(w, "The uploaded files are too large.", http.StatusBadRequest)
+			return
+		}
+
+		// Extract 'taskID' and 'userID' from form data
+		taskIDStr := r.FormValue("taskID")
+		userIDStr := r.FormValue("userID")
+		submissionNumberStr := r.FormValue("submissionNumber")
+		if taskIDStr == "" || userIDStr == "" {
+			http.Error(w, "taskID and userID are required.", http.StatusBadRequest)
+			return
+		}
+
+		taskID, err := strconv.Atoi(taskIDStr)
+		if err != nil {
+			http.Error(w, "Invalid taskID.", http.StatusBadRequest)
+			return
+		}
+
+		userID, err := strconv.Atoi(userIDStr)
+		if err != nil {
+			http.Error(w, "Invalid userID.", http.StatusBadRequest)
+			return
+		}
+
+		submissionNumber, err := strconv.Atoi(submissionNumberStr)
+		if err != nil {
+			http.Error(w, "Invalid submission number.", http.StatusBadRequest)
+			return
+		}
+
+		// Prepare maps for output files and error file
+		outputFiles := make(map[string][]byte)
+		errorFile := make(map[string][]byte)
+
+		// Process the output files
+		outputFilesUploaded := r.MultipartForm.File["outputs"]
+		for _, fileHeader := range outputFilesUploaded {
+			file, err := fileHeader.Open()
+			if err != nil {
+				http.Error(w, "Failed to open output file.", http.StatusInternalServerError)
+				return
+			}
+			defer file.Close()
+
+			content, err := io.ReadAll(file)
+			if err != nil {
+				http.Error(w, "Failed to read output file.", http.StatusInternalServerError)
+				return
+			}
+
+			outputFiles[fileHeader.Filename] = content
+		}
+
+		// Process the error file
+		errorFilesUploaded := r.MultipartForm.File["error"]
+		for _, fileHeader := range errorFilesUploaded {
+			file, err := fileHeader.Open()
+			if err != nil {
+				http.Error(w, "Failed to open error file.", http.StatusInternalServerError)
+				return
+			}
+			defer file.Close()
+
+			content, err := io.ReadAll(file)
+			if err != nil {
+				http.Error(w, "Failed to read error file.", http.StatusInternalServerError)
+				return
+			}
+
+			errorFile[fileHeader.Filename] = content
+		}
+
+		// Check the conditions:
+		if len(outputFiles) == 0 && len(errorFile) == 0 {
+			http.Error(w, "Either outputs or error file must be provided.", http.StatusBadRequest)
+			return
+		}
+
+		if len(outputFiles) > 0 && len(errorFile) > 0 {
+			http.Error(w, "Cannot have both outputs and error file at the same time.", http.StatusBadRequest)
+			return
+		}
+
+		// If output files are provided, store them
+		if len(outputFiles) > 0 {
+			err := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to store output files: %v", err), http.StatusInternalServerError)
+				return
+			}
+			w.Write([]byte("Output files stored successfully"))
+			return
+		}
+
+		// If an error file is provided, store it
+		if len(errorFile) > 0 {
+			err := ts.StoreUserOutputs(taskID, userID, submissionNumber, errorFile)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to store error file: %v", err), http.StatusInternalServerError)
+				return
+			}
+			w.Write([]byte("Error file stored successfully"))
+			return
+		}
+	})
+
 	return &Server{mux: mux}
 }

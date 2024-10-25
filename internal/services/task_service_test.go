@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -43,8 +44,10 @@ func TestCreateTaskDirectory(t *testing.T) {
 	// Define mock files for input/output testing
 	files := map[string][]byte{
 		"src/description.pdf":  []byte("Task description content"),
-		"src/input/1.in.txt":   []byte("Input file 1 content"),
-		"src/output/1.out.txt": []byte("Output file 1 content"),
+		"src/input/file1.txt":  []byte("Input file 1 content"),
+		"src/output/file1.txt": []byte("Output file 1 content"),
+		"src/input/file2.txt":  []byte("Input file 2 content"),
+		"src/output/file2.txt": []byte("Output file 2 content"),
 	}
 
 	// Subtest for creating a new task directory
@@ -63,29 +66,39 @@ func TestCreateTaskDirectory(t *testing.T) {
 		descriptionFile := filepath.Join(srcDir, "description.pdf")
 		assert.FileExists(t, descriptionFile, "description.pdf should exist")
 
-		// Verify input and output files exist
-		inputFile := filepath.Join(srcDir, "input", "1.in.txt")
-		outputFile := filepath.Join(srcDir, "output", "1.out.txt")
-		assert.FileExists(t, inputFile, "input file should exist")
-		assert.FileExists(t, outputFile, "output file should exist")
+		// Verify input and output files are renamed correctly
+		inputFile1 := filepath.Join(srcDir, "input", "1.in.txt")
+		outputFile1 := filepath.Join(srcDir, "output", "1.out.txt")
+		inputFile2 := filepath.Join(srcDir, "input", "2.in.txt")
+		outputFile2 := filepath.Join(srcDir, "output", "2.out.txt")
+
+		assert.FileExists(t, inputFile1, "1.in.txt input file should exist")
+		assert.FileExists(t, outputFile1, "1.out.txt output file should exist")
+		assert.FileExists(t, inputFile2, "2.in.txt input file should exist")
+		assert.FileExists(t, outputFile2, "2.out.txt output file should exist")
 	})
 
 	// Subtest for overwriting an existing task directory
 	t.Run("should overwrite an existing task directory", func(t *testing.T) {
 		// Modify the files for overwrite
 		files["src/description.pdf"] = []byte("New task description content")
-		files["src/input/1.in.txt"] = []byte("New input content")
-		files["src/output/1.out.txt"] = []byte("New output content")
+		files["src/input/file1.txt"] = []byte("New input content")
+		files["src/output/file1.txt"] = []byte("New output content")
 
 		// Attempt to overwrite the directory
 		err := ts.CreateTaskDirectory(1, files, true)
 		assert.NoError(t, err, "expected no error when overwriting the task directory")
 
-		// Verify the files have been overwritten
+		// Verify the files have been overwritten and renamed correctly
 		descriptionFile := filepath.Join(mockConfig.RootDirectory, "task1", "src", "description.pdf")
 		content, err := os.ReadFile(descriptionFile)
 		assert.NoError(t, err, "expected no error reading description.pdf")
 		assert.Equal(t, "New task description content", string(content), "description.pdf content should be overwritten")
+
+		inputFile := filepath.Join(mockConfig.RootDirectory, "task1", "src", "input", "1.in.txt")
+		outputFile := filepath.Join(mockConfig.RootDirectory, "task1", "src", "output", "1.out.txt")
+		assert.FileExists(t, inputFile, "1.in.txt should exist")
+		assert.FileExists(t, outputFile, "1.out.txt should exist")
 	})
 
 	// Subtest for when task directory exists and overwrite is not allowed
@@ -100,13 +113,40 @@ func TestCreateTaskDirectory(t *testing.T) {
 		// Mock files with mismatched input and output files
 		mismatchedFiles := map[string][]byte{
 			"src/description.pdf": []byte("Task description content"),
-			"src/input/1.in.txt":  []byte("Input file 1 content"),
+			"src/input/file1.txt": []byte("Input file 1 content"),
 			// Missing output file, mismatching the number of input files
 		}
 
 		// Attempt to create the directory
 		err := ts.CreateTaskDirectory(1, mismatchedFiles, false)
 		assert.Error(t, err, "expected an error due to mismatched input/output files")
+	})
+
+	// Subtest to check if an error is returned for non-txt input/output files
+	t.Run("should return an error when input/output files are not .txt files", func(t *testing.T) {
+		invalidFiles := map[string][]byte{
+			"src/input/1.in.pdf":   []byte("Input file in invalid format"),
+			"src/output/1.out.pdf": []byte("Output file in invalid format"),
+		}
+
+		// Attempt to create the directory with invalid file formats
+		err := ts.CreateTaskDirectory(3, invalidFiles, false)
+		assert.Error(t, err, "expected an error when input or output file is not a .txt file")
+		assert.Contains(t, err.Error(), "only .txt files are allowed", "error message should mention invalid file format")
+	})
+
+	// Subtest to check if an error is returned for non-pdf description files
+	t.Run("should return an error when description file is not a .pdf file", func(t *testing.T) {
+		invalidFiles := map[string][]byte{
+			"src/description.exe":  []byte("Task description content"),
+			"src/input/1.in.txt":   []byte("Input file 1 content"),
+			"src/output/1.out.txt": []byte("Output file 1 content"),
+		}
+
+		// Attempt to create the directory with invalid file formats
+		err := ts.CreateTaskDirectory(3, invalidFiles, false)
+		assert.Error(t, err, "expected an error when description is not a .pdf file")
+		assert.Contains(t, err.Error(), "description must have a .pdf extension", "error message should mention invalid file format")
 	})
 }
 
@@ -122,6 +162,17 @@ func TestCreateUserSubmission(t *testing.T) {
 	}
 
 	ts := NewTaskService(mockConfig)
+
+	// Define mock task files for input/output testing to create a valid task
+	taskFiles := map[string][]byte{
+		"src/description.pdf":  []byte("Task description content"),
+		"src/input/1.in.txt":   []byte("Input file 1 content"),
+		"src/output/1.out.txt": []byte("Output file 1 content"),
+	}
+
+	// Set up the task directory for task ID 1
+	err := ts.CreateTaskDirectory(1, taskFiles, false)
+	assert.NoError(t, err, "expected no error when creating the task directory for task 1")
 
 	// Subtest for creating the first submission for a user
 	t.Run("should create a new user submission directory", func(t *testing.T) {
@@ -229,5 +280,138 @@ func TestCreateUserSubmission(t *testing.T) {
 		err := ts.CreateUserSubmission(999, 1, userFileContent, fileName)
 		assert.Error(t, err, "expected an error when trying to submit to a non-existent task")
 		assert.Contains(t, err.Error(), "invalid taskID: task directory does not exist", "error message should indicate failure due to missing task directory")
+	})
+}
+
+// TestStoreUserOutputs tests the StoreUserOutputs function using subtests to describe different scenarios.
+func TestStoreUserOutputs(t *testing.T) {
+	rootDir, cleanup := createTempRootDir(t)
+	defer cleanup()
+
+	// Create a mock configuration with the temporary root directory
+	mockConfig := &config.Config{
+		RootDirectory: rootDir,
+	}
+
+	ts := NewTaskService(mockConfig)
+
+	// Helper function to create a specific user submission directory
+	createUserSubmissionDir := func(taskID, userID, submissionNumber int) {
+		userSubmissionDir := filepath.Join(mockConfig.RootDirectory, fmt.Sprintf("task%d", taskID), "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNumber), "output")
+		err := os.MkdirAll(userSubmissionDir, os.ModePerm)
+		assert.NoError(t, err, "failed to create user submission directory")
+	}
+
+	// Helper function to create the task's expected output directory with some .out.txt files
+	createExpectedOutputFiles := func(taskID int, count int) {
+		expectedOutputDir := filepath.Join(mockConfig.RootDirectory, fmt.Sprintf("task%d", taskID), "src", "output")
+		err := os.MkdirAll(expectedOutputDir, os.ModePerm)
+		assert.NoError(t, err, "failed to create expected output directory")
+
+		for i := 1; i <= count; i++ {
+			filePath := filepath.Join(expectedOutputDir, fmt.Sprintf("%d.out.txt", i))
+			err := os.WriteFile(filePath, []byte(fmt.Sprintf("Expected output %d", i)), 0644)
+			assert.NoError(t, err, "failed to create expected output file %d", i)
+		}
+	}
+
+	// Subtest for storing valid output files
+	t.Run("should store valid output files in {number}.out.txt format", func(t *testing.T) {
+		taskID := 1
+		userID := 1
+		submissionNumber := 1
+
+		// Set up expected output files
+		createExpectedOutputFiles(taskID, 2)
+
+		// Create the user submission directory for the task
+		createUserSubmissionDir(taskID, userID, submissionNumber)
+
+		// Output files to store
+		outputFiles := map[string][]byte{
+			"output1.txt": []byte("Output 1 content"),
+			"output2.txt": []byte("Output 2 content"),
+		}
+
+		// Store output files
+		err := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
+		assert.NoError(t, err, "expected no error when storing valid output files")
+
+		// Verify files are stored correctly
+		outputDir := filepath.Join(mockConfig.RootDirectory, "task1", "submissions", "user1", "submission1", "output")
+		assert.FileExists(t, filepath.Join(outputDir, "1.out.txt"), "First output file should exist as 1.out.txt")
+		assert.FileExists(t, filepath.Join(outputDir, "2.out.txt"), "Second output file should exist as 2.out.txt")
+	})
+
+	// Subtest for handling compile-error.err
+	t.Run("should store compile-error.err when it is the only file", func(t *testing.T) {
+		taskID := 2
+		userID := 1
+		submissionNumber := 1
+
+		// Set up expected output files
+		createExpectedOutputFiles(taskID, 2)
+
+		// Create the user submission directory for the task
+		createUserSubmissionDir(taskID, userID, submissionNumber)
+
+		// Compile error file
+		outputFiles := map[string][]byte{
+			"compile-error.err": []byte("Compilation error details"),
+		}
+
+		// Store compile error
+		err := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
+		assert.NoError(t, err, "expected no error when storing compile-error.err")
+
+		// Verify compile-error.err exists
+		outputDir := filepath.Join(mockConfig.RootDirectory, "task2", "submissions", "user1", "submission1", "output")
+		assert.FileExists(t, filepath.Join(outputDir, "compile-error.err"), "Compile-error file should exist")
+	})
+
+	// Subtest for error when trying to store non-.txt files
+	t.Run("should return an error when trying to store non-.txt output files", func(t *testing.T) {
+		taskID := 3
+		userID := 1
+		submissionNumber := 1
+
+		// Set up expected output files
+		createExpectedOutputFiles(taskID, 1)
+
+		// Create the user submission directory for the task
+		createUserSubmissionDir(taskID, userID, submissionNumber)
+
+		// Invalid output file (non-.txt)
+		outputFiles := map[string][]byte{
+			"output1.pdf": []byte("Invalid output format"),
+		}
+
+		// Attempt to store invalid output files
+		err := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
+		assert.Error(t, err, "expected an error when trying to store non-.txt files")
+		assert.Contains(t, err.Error(), "only .txt files or 'compile-error.err' are allowed", "error message should mention invalid file format")
+	})
+
+	// Subtest for error when number of output files doesn't match the number of output files of a task
+	t.Run("should return an error when number of outputs does not match task expected outputs", func(t *testing.T) {
+		taskID := 6
+		userID := 1
+		submissionNumber := 1
+
+		// Set up expected output files
+		createExpectedOutputFiles(taskID, 2)
+
+		// Create the user submission directory for the task
+		createUserSubmissionDir(taskID, userID, submissionNumber)
+
+		// Store only one output file (mismatched count with task's expected output count)
+		outputFiles := map[string][]byte{
+			"output1.txt": []byte("User output 1"),
+		}
+
+		// Attempt to store the output files and expect an error
+		err := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
+		assert.Error(t, err, "expected an error when number of user outputs does not match task's expected outputs")
+		assert.Contains(t, err.Error(), "number of output files does not match the expected number", "error message should indicate output count mismatch")
 	})
 }
