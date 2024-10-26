@@ -34,7 +34,7 @@ This API enables users to manage tasks, submit files, and store outputs generate
 - Success: 200 OK with the message "Task directory created successfully"
 - Failure: 400 or 500 error code with a specific error message.
 
-## 2. Submit File
+### 2. Submit File
 
 - Endpoint: /submit
 - Method: POST
