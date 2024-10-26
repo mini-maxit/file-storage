@@ -131,7 +131,7 @@ Request example:
 ### 5. Get User Submission
 - Endpoint: /getUserSubmission
 - Method: GET
-- Description: Fetches the specific submission file for a user. It will replace the current getFiles from solution.go. For now it should check if there is only one program file.
+- Description: Fetches the specific submission file for a user.
 
 #### Query Params:
 - taskID (required): Integer ID of the task.
@@ -189,3 +189,33 @@ Request example:
   - 400 Bad Request if taskID is missing or invalid.
   - 404 Not Found if the task directory does not exist.
   - 500 Internal Server Error if there is an error during the deletion process.
+
+### 7. Get User Solution Package
+
+- Endpoint: /getSolutionPackage
+- Method: GET
+- Description: Retrieves a structured package containing input, output, and solution files for a specific user’s submission in a task. The package is returned as a `.tar.gz` archive.
+
+#### Query Params:
+- taskID (required): Integer ID of the task.
+- userID (required): Integer ID of the user.
+- submissionNumber (required): Integer indicating the submission version for which the solution package is requested.
+
+#### Request example:
+
+```bash
+  curl --location 'http://localhost:8080/getSolutionPackage?taskID=123&userID=1&submissionNumber=1'
+```
+
+#### Response:
+- Success:
+  - Status: 200 OK
+  - Returns a .tar.gz file named Task{taskID}_User{userID}_Submission{submissionNumber}_Package.tar.gz containing:
+    - inputs/ folder with all input .in files
+    - outputs/ folder with all output .out files
+    - solution file with any original extension
+- Failure:
+  - Status: 400 Bad Request if any required parameter is missing or invalid.
+  - Status: 404 Not Found if the specified task, submission, or required files (input, output, solution) are missing.
+  - Status: 500 Internal Server Error for other server-related issues.
+  

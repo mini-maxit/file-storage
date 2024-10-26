@@ -475,6 +475,76 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 		}
 	})
 
+	mux.HandleFunc("/getSolutionPackage", func(w http.ResponseWriter, r *http.Request) {
+		// Ensure the request method is GET
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract taskID, userID, and submissionNumber parameters from the URL query
+		taskIDStr := r.URL.Query().Get("taskID")
+		if taskIDStr == "" {
+			http.Error(w, "taskID is required.", http.StatusBadRequest)
+			return
+		}
+		userIDStr := r.URL.Query().Get("userID")
+		if userIDStr == "" {
+			http.Error(w, "userID is required.", http.StatusBadRequest)
+			return
+		}
+		submissionNumStr := r.URL.Query().Get("submissionNumber")
+		if submissionNumStr == "" {
+			http.Error(w, "submissionNumber is required.", http.StatusBadRequest)
+			return
+		}
+
+		// Convert parameters to integers
+		taskID, err := strconv.Atoi(taskIDStr)
+		if err != nil {
+			http.Error(w, "Invalid taskID.", http.StatusBadRequest)
+			return
+		}
+		userID, err := strconv.Atoi(userIDStr)
+		if err != nil {
+			http.Error(w, "Invalid userID.", http.StatusBadRequest)
+			return
+		}
+		submissionNum, err := strconv.Atoi(submissionNumStr)
+		if err != nil {
+			http.Error(w, "Invalid submissionNumber.", http.StatusBadRequest)
+			return
+		}
+
+		// Call GetUserSolutionPackage to retrieve the package as a .tar.gz archive
+		tarFilePath, err := ts.GetUserSolutionPackage(taskID, userID, submissionNum)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to retrieve solution package: %v", err), http.StatusInternalServerError)
+			return
+		}
+		defer os.Remove(tarFilePath) // Clean up the temporary file after response
+
+		// Open the .tar.gz file
+		tarFile, err := os.Open(tarFilePath)
+		if err != nil {
+			http.Error(w, "Failed to open solution package.", http.StatusInternalServerError)
+			return
+		}
+		defer tarFile.Close()
+
+		// Set headers and serve the .tar.gz file
+		w.Header().Set("Content-Type", "application/gzip")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=Task%d_User%d_Submission%d_Package.tar.gz", taskID, userID, submissionNum))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", helpers.FileSize(tarFile)))
+
+		// Stream the file content to the response
+		_, err = io.Copy(w, tarFile)
+		if err != nil {
+			http.Error(w, "Failed to send solution package.", http.StatusInternalServerError)
+			return
+		}
+	})
+
 	mux.HandleFunc("/deleteTask", func(w http.ResponseWriter, r *http.Request) {
 		// Ensure the request method is DELETE
 		if r.Method != http.MethodDelete {

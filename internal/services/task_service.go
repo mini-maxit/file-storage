@@ -478,6 +478,118 @@ func (ts *TaskService) DeleteTask(taskID int) error {
 	return nil
 }
 
+// GetUserSolutionPackage fetches the specific package for a given task, user, and submission number,
+// organizing it in a structured .tar.gz archive containing inputs, outputs, and the solution file.
+func (ts *TaskService) GetUserSolutionPackage(taskID, userID, submissionNum int) (string, error) {
+	// Define paths for the task directories and files
+	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+	inputDir := filepath.Join(taskDir, "src", "input")
+	outputDir := filepath.Join(taskDir, "src", "output")
+	solutionPattern := filepath.Join(taskDir, "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum), "solution.*")
+
+	// Check if the input and output directories exist
+	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
+		return "", fmt.Errorf("input directory does not exist for task %d", taskID)
+	}
+	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
+		return "", fmt.Errorf("output directory does not exist for task %d", taskID)
+	}
+
+	// Find the solution file with any extension
+	solutionFiles, err := filepath.Glob(solutionPattern)
+	if err != nil {
+		return "", fmt.Errorf("failed to search for solution file: %v", err)
+	}
+	if len(solutionFiles) == 0 {
+		return "", fmt.Errorf("solution file does not exist for user %d, submission %d of task %d", userID, submissionNum, taskID)
+	}
+	if len(solutionFiles) > 1 {
+		return "", fmt.Errorf("multiple solution files found for user %d, submission %d of task %d", userID, submissionNum, taskID)
+	}
+	solutionFile := solutionFiles[0]
+
+	// Create a temporary .tar.gz file to store the package
+	tarFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("task%d_user%d_submission%d_package.tar.gz", taskID, userID, submissionNum))
+	tarFile, err := os.Create(tarFilePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary tar file: %v", err)
+	}
+	defer tarFile.Close()
+
+	// Initialize gzip and tar writers
+	gzipWriter := gzip.NewWriter(tarFile)
+	defer gzipWriter.Close()
+
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+
+	// Function to add files to the archive with specified path
+	addFileToTar := func(filePath, tarPath string) error {
+		file, err := os.Open(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to open file %s: %v", filePath, err)
+		}
+		defer file.Close()
+
+		info, err := file.Stat()
+		if err != nil {
+			return fmt.Errorf("failed to get file info for %s: %v", filePath, err)
+		}
+
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return fmt.Errorf("failed to create tar header for file %s: %v", filePath, err)
+		}
+
+		header.Name = tarPath // Use provided tarPath for directory structure in archive
+
+		if err := tarWriter.WriteHeader(header); err != nil {
+			return fmt.Errorf("failed to write tar header for file %s: %v", filePath, err)
+		}
+
+		if _, err := io.Copy(tarWriter, file); err != nil {
+			return fmt.Errorf("failed to write file %s to tar: %v", filePath, err)
+		}
+
+		return nil
+	}
+
+	// Add input files to the "inputs/" folder in the tar
+	inputFiles, err := filepath.Glob(filepath.Join(inputDir, "*.in.txt"))
+	if err != nil {
+		return "", fmt.Errorf("failed to read input files: %v", err)
+	}
+	for _, filePath := range inputFiles {
+		fileName := filepath.Base(filePath)
+		err := addFileToTar(filePath, filepath.Join("Task", "inputs", fileName))
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Add output files to the "outputs/" folder in the tar
+	outputFiles, err := filepath.Glob(filepath.Join(outputDir, "*.out.txt"))
+	if err != nil {
+		return "", fmt.Errorf("failed to read output files: %v", err)
+	}
+	for _, filePath := range outputFiles {
+		fileName := filepath.Base(filePath)
+		err := addFileToTar(filePath, filepath.Join("Task", "outputs", fileName))
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Add the solution file to the tar, preserving its original extension
+	err = addFileToTar(solutionFile, filepath.Join("Task", filepath.Base(solutionFile)))
+	if err != nil {
+		return "", err
+	}
+
+	// Return the path to the created .tar.gz file
+	return tarFilePath, nil
+}
+
 // backupDirectory creates a backup of an existing directory in a temporary location.
 func (ts *TaskService) backupDirectory(taskDir string) (string, error) {
 	backupDir, err := os.MkdirTemp("", "task_backup_*")
