@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/mini-maxit/file-storage/internal/config"
@@ -115,57 +117,100 @@ func (tu *TaskUtils) CreateDirectoryStructure(srcDir, inputDir, outputDir string
 	return nil
 }
 
-// ValidateFiles checks if the number of input and output files matches and if all files have a .txt extension.
+// ValidateFiles checks if input and output files have names in the correct format ({number}.in or {number}.out),
+// ensures each file has a unique number, and validates that there is an equal count of input and output files.
+// Also ensures there is a single description file with a .pdf extension.
 func (tu *TaskUtils) ValidateFiles(files map[string][]byte) error {
-	var inputFiles, outputFiles []string
+	inputFiles := make(map[int]bool)
+	outputFiles := make(map[int]bool)
+	hasDescription := false
+
+	// Define regex patterns to match "{number}.in" or "{number}.out"
+	inputPattern := regexp.MustCompile(`^(\d+)\.in$`)
+	outputPattern := regexp.MustCompile(`^(\d+)\.out$`)
 
 	for fileName := range files {
+		baseName := filepath.Base(fileName)
+
+		// Validate input files
 		if strings.HasPrefix(fileName, "src/input/") {
-			if filepath.Ext(fileName) != ".txt" {
-				return errors.New("only .txt files are allowed for input files")
+			matches := inputPattern.FindStringSubmatch(baseName)
+			if matches == nil {
+				return fmt.Errorf("input file %s does not match the required format {number}.in", baseName)
 			}
-			inputFiles = append(inputFiles, fileName)
+
+			number := matches[1]
+			num, err := strconv.Atoi(number)
+			if err != nil {
+				return fmt.Errorf("invalid input file number in %s: %v", baseName, err)
+			}
+
+			if inputFiles[num] {
+				return fmt.Errorf("duplicate input file number %d found", num)
+			}
+			inputFiles[num] = true
+
+			// Validate output files
 		} else if strings.HasPrefix(fileName, "src/output/") {
-			if filepath.Ext(fileName) != ".txt" {
-				return errors.New("only .txt files are allowed for output files")
+			matches := outputPattern.FindStringSubmatch(baseName)
+			if matches == nil {
+				return fmt.Errorf("output file %s does not match the required format {number}.out", baseName)
 			}
-			outputFiles = append(outputFiles, fileName)
-		} else {
+
+			number := matches[1]
+			num, err := strconv.Atoi(number)
+			if err != nil {
+				return fmt.Errorf("invalid output file number in %s: %v", baseName, err)
+			}
+
+			if outputFiles[num] {
+				return fmt.Errorf("duplicate output file number %d found", num)
+			}
+			outputFiles[num] = true
+
+			// Validate description file
+		} else if baseName == "description.pdf" || strings.HasPrefix(baseName, "description.") {
 			if filepath.Ext(fileName) != ".pdf" {
 				return errors.New("description must have a .pdf extension")
 			}
+			hasDescription = true
+
+			// Unrecognized file path
+		} else {
+			return fmt.Errorf("unrecognized file path %s", fileName)
 		}
 	}
 
+	// Ensure equal counts of input and output files
 	if len(inputFiles) != len(outputFiles) {
 		return errors.New("the number of input files must match the number of output files")
+	}
+
+	// Ensure a description file is provided
+	if !hasDescription {
+		return errors.New("a description file (description.pdf) is required")
 	}
 
 	return nil
 }
 
-// SaveFiles saves input and output files to their respective directories in the {number}.in.txt and {number}.out.txt format.
+// SaveFiles saves input and output files in their respective directories using their original names and extensions.
 func (tu *TaskUtils) SaveFiles(inputDir, outputDir string, files map[string][]byte) error {
-	inputCount := 1
-	outputCount := 1
-
 	for fileName, fileContent := range files {
+		var targetDir string
+
 		if strings.HasPrefix(fileName, "src/input/") {
-			newFileName := fmt.Sprintf("%d.in.txt", inputCount)
-			if err := os.WriteFile(filepath.Join(inputDir, newFileName), fileContent, 0644); err != nil {
-				return fmt.Errorf("failed to save input file %s: %v", fileName, err)
-			}
-			inputCount++
+			targetDir = inputDir
+		} else if strings.HasPrefix(fileName, "src/output/") {
+			targetDir = outputDir
+		} else {
+			continue // Ignore files outside of input/output directories
 		}
-	}
 
-	for fileName, fileContent := range files {
-		if strings.HasPrefix(fileName, "src/output/") {
-			newFileName := fmt.Sprintf("%d.out.txt", outputCount)
-			if err := os.WriteFile(filepath.Join(outputDir, newFileName), fileContent, 0644); err != nil {
-				return fmt.Errorf("failed to save output file %s: %v", fileName, err)
-			}
-			outputCount++
+		// Save the file with its original name and extension
+		targetFilePath := filepath.Join(targetDir, filepath.Base(fileName))
+		if err := os.WriteFile(targetFilePath, fileContent, 0644); err != nil {
+			return fmt.Errorf("failed to save file %s: %v", fileName, err)
 		}
 	}
 
