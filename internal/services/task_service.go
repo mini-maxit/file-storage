@@ -456,6 +456,28 @@ func (ts *TaskService) GetInputOutput(taskID int, inputOutputID int) (string, er
 	return tarFilePath, nil
 }
 
+// DeleteTask deletes the directory of a specific task, including all associated files and submissions.
+func (ts *TaskService) DeleteTask(taskID int) error {
+	// Construct the task directory path
+	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+
+	// Check if the task directory exists
+	_, err := os.Stat(taskDir)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("no directory exists for task %d", taskID)
+	} else if err != nil {
+		return fmt.Errorf("failed to access task directory for task %d: %v", taskID, err)
+	}
+
+	// Attempt to remove the task directory and all its contents
+	err = os.RemoveAll(taskDir)
+	if err != nil {
+		return fmt.Errorf("failed to delete task directory for task %d: %v", taskID, err)
+	}
+
+	return nil
+}
+
 // backupDirectory creates a backup of an existing directory in a temporary location.
 func (ts *TaskService) backupDirectory(taskDir string) (string, error) {
 	backupDir, err := os.MkdirTemp("", "task_backup_*")

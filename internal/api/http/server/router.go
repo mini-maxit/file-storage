@@ -475,5 +475,42 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 		}
 	})
 
+	mux.HandleFunc("/deleteTask", func(w http.ResponseWriter, r *http.Request) {
+		// Ensure the request method is DELETE
+		if r.Method != http.MethodDelete {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract taskID parameter from the URL query
+		taskIDStr := r.URL.Query().Get("taskID")
+		if taskIDStr == "" {
+			http.Error(w, "taskID is required.", http.StatusBadRequest)
+			return
+		}
+
+		// Convert taskID to an integer
+		taskID, err := strconv.Atoi(taskIDStr)
+		if err != nil {
+			http.Error(w, "Invalid taskID.", http.StatusBadRequest)
+			return
+		}
+
+		// Call DeleteTask to delete the specified task directory
+		err = ts.DeleteTask(taskID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to delete task %d: %v", taskID, err), http.StatusInternalServerError)
+			return
+		}
+
+		// Respond with a success message
+		w.WriteHeader(http.StatusOK)
+		_, err = w.Write([]byte(fmt.Sprintf("Task %d successfully deleted.", taskID)))
+		if err != nil {
+			http.Error(w, "Failed to send response.", http.StatusInternalServerError)
+			return
+		}
+	})
+
 	return &Server{mux: mux}
 }

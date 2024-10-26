@@ -688,6 +688,79 @@ func TestGetInputOutput(t *testing.T) {
 	})
 }
 
+func TestDeleteTask(t *testing.T) {
+	// Set up a temporary root directory
+	rootDir, cleanup := createTempRootDir(t)
+	defer cleanup()
+
+	// Initialize TaskService with the mock configuration
+	mockConfig := &config.Config{
+		RootDirectory: rootDir,
+	}
+	ts := NewTaskService(mockConfig)
+
+	// Helper function to create a task directory with sample files
+	createTaskDir := func(taskID int) error {
+		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID))
+		err := os.MkdirAll(taskDir, os.ModePerm)
+		if err != nil {
+			return fmt.Errorf("failed to create task directory: %v", err)
+		}
+		// Create a sample file within the task directory
+		filePath := filepath.Join(taskDir, "sample.txt")
+		err = os.WriteFile(filePath, []byte("sample content"), 0644)
+		if err != nil {
+			return fmt.Errorf("failed to create sample file: %v", err)
+		}
+		return nil
+	}
+
+	// Test for successful deletion of task directory
+	t.Run("should delete the task directory and all its contents", func(t *testing.T) {
+		taskID := 1
+		err := createTaskDir(taskID)
+		assert.NoError(t, err, "expected no error creating task directory")
+
+		// Call DeleteTask and verify result
+		err = ts.DeleteTask(taskID)
+		assert.NoError(t, err, "expected no error deleting task directory")
+
+		// Verify that the task directory no longer exists
+		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID))
+		_, err = os.Stat(taskDir)
+		assert.True(t, os.IsNotExist(err), "task directory should be deleted")
+	})
+
+	// Test for handling non-existent directory
+	t.Run("should return no error if the task directory does not exist", func(t *testing.T) {
+		taskID := 2
+
+		// Call DeleteTask on a non-existent directory
+		err := ts.DeleteTask(taskID)
+		assert.Error(t, err, "expected an error for missing the task files")
+		assert.Regexp(t, `no directory exists for task \d+`, err.Error(), "error should mention missing input file")
+	})
+
+	// Test for handling directory deletion failure due to permissions
+	t.Run("should return an error if directory cannot be deleted", func(t *testing.T) {
+		taskID := 3
+		err := createTaskDir(taskID)
+		assert.NoError(t, err, "expected no error creating task directory")
+
+		// Make the directory read-only to simulate a deletion failure
+		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID))
+		err = os.Chmod(taskDir, 0444) // read-only permissions
+		assert.NoError(t, err, "expected no error changing task directory permissions")
+
+		// Attempt to delete and check for an error
+		err = ts.DeleteTask(taskID)
+		assert.Error(t, err, "expected an error deleting read-only directory")
+
+		// Restore permissions to allow cleanup
+		_ = os.Chmod(taskDir, 0755)
+	})
+}
+
 // Helper function to verify contents of a tar.gz file
 func verifyTarContents(t *testing.T, tarFilePath string, inputOutputID int) {
 	// Open tar.gz file
