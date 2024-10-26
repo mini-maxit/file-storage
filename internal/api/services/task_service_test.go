@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"fmt"
+	"github.com/mini-maxit/file-storage/internal/api/taskutils"
 	"io"
 	"os"
 	"path/filepath"
@@ -41,7 +42,8 @@ func TestCreateTaskDirectory(t *testing.T) {
 		RootDirectory: rootDir,
 	}
 
-	ts := NewTaskService(mockConfig)
+	tu := taskutils.NewTaskUtils(mockConfig)
+	ts := NewTaskService(mockConfig, tu)
 
 	// Define mock files for input/output testing
 	files := map[string][]byte{
@@ -58,7 +60,7 @@ func TestCreateTaskDirectory(t *testing.T) {
 		assert.NoError(t, err, "expected no error when creating a new task directory")
 
 		// Verify the directory structure and files exist
-		taskDir := filepath.Join(mockConfig.RootDirectory, "task1")
+		taskDir := filepath.Join(ts.taskDirectory, "task1")
 		srcDir := filepath.Join(taskDir, "src")
 		assert.DirExists(t, srcDir, "src directory should exist")
 		assert.DirExists(t, filepath.Join(srcDir, "input"), "input directory should exist")
@@ -92,13 +94,13 @@ func TestCreateTaskDirectory(t *testing.T) {
 		assert.NoError(t, err, "expected no error when overwriting the task directory")
 
 		// Verify the files have been overwritten and renamed correctly
-		descriptionFile := filepath.Join(mockConfig.RootDirectory, "task1", "src", "description.pdf")
+		descriptionFile := filepath.Join(ts.taskDirectory, "task1", "src", "description.pdf")
 		content, err := os.ReadFile(descriptionFile)
 		assert.NoError(t, err, "expected no error reading description.pdf")
 		assert.Equal(t, "New task description content", string(content), "description.pdf content should be overwritten")
 
-		inputFile := filepath.Join(mockConfig.RootDirectory, "task1", "src", "input", "1.in.txt")
-		outputFile := filepath.Join(mockConfig.RootDirectory, "task1", "src", "output", "1.out.txt")
+		inputFile := filepath.Join(ts.taskDirectory, "task1", "src", "input", "1.in.txt")
+		outputFile := filepath.Join(ts.taskDirectory, "task1", "src", "output", "1.out.txt")
 		assert.FileExists(t, inputFile, "1.in.txt should exist")
 		assert.FileExists(t, outputFile, "1.out.txt should exist")
 	})
@@ -162,7 +164,8 @@ func TestCreateUserSubmission(t *testing.T) {
 		AllowedFileTypes: []string{".c", ".cpp", ".py"}, // Allowed extensions
 	}
 
-	ts := NewTaskService(mockConfig)
+	tu := taskutils.NewTaskUtils(mockConfig)
+	ts := NewTaskService(mockConfig, tu)
 
 	// Define mock task files for input/output testing to create a valid task
 	taskFiles := map[string][]byte{
@@ -185,7 +188,7 @@ func TestCreateUserSubmission(t *testing.T) {
 		assert.NoError(t, err, "expected no error when creating the first user submission")
 
 		// Verify the directory structure
-		userDir := filepath.Join(mockConfig.RootDirectory, "task1", "submissions", "user1")
+		userDir := filepath.Join(ts.taskDirectory, "task1", "submissions", "user1")
 		assert.DirExists(t, userDir, "user directory should exist")
 
 		// Verify submission directory exists
@@ -215,7 +218,7 @@ func TestCreateUserSubmission(t *testing.T) {
 		assert.NoError(t, err, "expected no error when creating the second user submission")
 
 		// Verify submission directory exists
-		submissionDir := filepath.Join(mockConfig.RootDirectory, "task1", "submissions", "user1", "submission2")
+		submissionDir := filepath.Join(ts.taskDirectory, "task1", "submissions", "user1", "submission2")
 		assert.DirExists(t, submissionDir, "submission2 directory should exist")
 
 		// Verify that the output directory exists
@@ -252,7 +255,7 @@ func TestCreateUserSubmission(t *testing.T) {
 		assert.NoError(t, err, "expected no error when creating submission for user 2")
 
 		// Verify the user directory exists
-		userDir := filepath.Join(mockConfig.RootDirectory, "task1", "submissions", "user2")
+		userDir := filepath.Join(ts.taskDirectory, "task1", "submissions", "user2")
 		assert.DirExists(t, userDir, "user2 directory should exist")
 
 		// Verify the first submission directory exists
@@ -293,18 +296,19 @@ func TestStoreUserOutputs(t *testing.T) {
 		RootDirectory: rootDir,
 	}
 
-	ts := NewTaskService(mockConfig)
+	tu := taskutils.NewTaskUtils(mockConfig)
+	ts := NewTaskService(mockConfig, tu)
 
 	// Helper function to create a specific user submission directory
 	createUserSubmissionDir := func(taskID, userID, submissionNumber int) {
-		userSubmissionDir := filepath.Join(mockConfig.RootDirectory, fmt.Sprintf("task%d", taskID), "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNumber), "output")
+		userSubmissionDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID), "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNumber), "output")
 		err := os.MkdirAll(userSubmissionDir, os.ModePerm)
 		assert.NoError(t, err, "failed to create user submission directory")
 	}
 
 	// Helper function to create the task's expected output directory with some .out.txt files
 	createExpectedOutputFiles := func(taskID int, count int) {
-		expectedOutputDir := filepath.Join(mockConfig.RootDirectory, fmt.Sprintf("task%d", taskID), "src", "output")
+		expectedOutputDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID), "src", "output")
 		err := os.MkdirAll(expectedOutputDir, os.ModePerm)
 		assert.NoError(t, err, "failed to create expected output directory")
 
@@ -338,7 +342,7 @@ func TestStoreUserOutputs(t *testing.T) {
 		assert.NoError(t, err, "expected no error when storing valid output files")
 
 		// Verify files are stored correctly
-		outputDir := filepath.Join(mockConfig.RootDirectory, "task1", "submissions", "user1", "submission1", "output")
+		outputDir := filepath.Join(ts.taskDirectory, "task1", "submissions", "user1", "submission1", "output")
 		assert.FileExists(t, filepath.Join(outputDir, "1.out.txt"), "First output file should exist as 1.out.txt")
 		assert.FileExists(t, filepath.Join(outputDir, "2.out.txt"), "Second output file should exist as 2.out.txt")
 	})
@@ -365,7 +369,7 @@ func TestStoreUserOutputs(t *testing.T) {
 		assert.NoError(t, err, "expected no error when storing compile-error.err")
 
 		// Verify compile-error.err exists
-		outputDir := filepath.Join(mockConfig.RootDirectory, "task2", "submissions", "user1", "submission1", "output")
+		outputDir := filepath.Join(ts.taskDirectory, "task2", "submissions", "user1", "submission1", "output")
 		assert.FileExists(t, filepath.Join(outputDir, "compile-error.err"), "Compile-error file should exist")
 	})
 
@@ -422,11 +426,12 @@ func TestGetTaskFiles(t *testing.T) {
 
 	// Mock configuration
 	mockConfig := &config.Config{RootDirectory: rootDir}
-	ts := NewTaskService(mockConfig)
+	tu := taskutils.NewTaskUtils(mockConfig)
+	ts := NewTaskService(mockConfig, tu)
 
 	// Helper function to set up a sample task directory structure with files for testing
 	createSampleTaskDir := func(taskID int) {
-		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID), "src")
+		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID), "src")
 		inputDir := filepath.Join(taskDir, "input")
 		outputDir := filepath.Join(taskDir, "output")
 
@@ -510,11 +515,12 @@ func TestGetUserSubmission(t *testing.T) {
 	}
 
 	// Initialize the TaskService with the mock configuration
-	ts := NewTaskService(mockConfig)
+	tu := taskutils.NewTaskUtils(mockConfig)
+	ts := NewTaskService(mockConfig, tu)
 
 	// Helper function to set up a submission directory and add a program file
 	createSubmission := func(taskID, userID, submissionNum int, fileName, fileContent string) error {
-		submissionDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID), "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
+		submissionDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID), "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
 		err := os.MkdirAll(submissionDir, os.ModePerm)
 		if err != nil {
 			return err
@@ -559,7 +565,7 @@ func TestGetUserSubmission(t *testing.T) {
 		submissionNum := 1
 
 		// Create an empty submission directory without a program file
-		submissionDir := filepath.Join(rootDir, "task3", "submissions", "user1", "submission1")
+		submissionDir := filepath.Join(ts.taskDirectory, "task3", "submissions", "user1", "submission1")
 		err := os.MkdirAll(submissionDir, os.ModePerm)
 		assert.NoError(t, err, "expected no error in creating empty submission directory")
 
@@ -598,11 +604,12 @@ func TestGetInputOutput(t *testing.T) {
 	mockConfig := &config.Config{
 		RootDirectory: rootDir,
 	}
-	ts := NewTaskService(mockConfig)
+	tu := taskutils.NewTaskUtils(mockConfig)
+	ts := NewTaskService(mockConfig, tu)
 
 	// Helper function to create input and output files for a task
 	createInputOutputFiles := func(taskID, inputOutputID int) error {
-		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID), "src")
+		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID), "src")
 		inputDir := filepath.Join(taskDir, "input")
 		outputDir := filepath.Join(taskDir, "output")
 
@@ -661,11 +668,11 @@ func TestGetInputOutput(t *testing.T) {
 		inputOutputID := 1
 
 		// Only create the output file
-		err := os.MkdirAll(filepath.Join(rootDir, fmt.Sprintf("task%d/src/output", taskID)), os.ModePerm)
+		err := os.MkdirAll(filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d/src/output", taskID)), os.ModePerm)
 		assert.NoError(t, err)
-		err = os.MkdirAll(filepath.Join(rootDir, fmt.Sprintf("task%d/src/input", taskID)), os.ModePerm)
+		err = os.MkdirAll(filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d/src/input", taskID)), os.ModePerm)
 		assert.NoError(t, err)
-		err = os.WriteFile(filepath.Join(rootDir, fmt.Sprintf("task%d/src/output", taskID), fmt.Sprintf("%d.out.txt", inputOutputID)), []byte("Output content"), 0644)
+		err = os.WriteFile(filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d/src/output", taskID), fmt.Sprintf("%d.out.txt", inputOutputID)), []byte("Output content"), 0644)
 		assert.NoError(t, err)
 
 		// Try to retrieve input/output and expect an error
@@ -680,11 +687,11 @@ func TestGetInputOutput(t *testing.T) {
 		inputOutputID := 1
 
 		// Only create the input file
-		err := os.MkdirAll(filepath.Join(rootDir, fmt.Sprintf("task%d/src/output", taskID)), os.ModePerm)
+		err := os.MkdirAll(filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d/src/output", taskID)), os.ModePerm)
 		assert.NoError(t, err)
-		err = os.MkdirAll(filepath.Join(rootDir, fmt.Sprintf("task%d/src/input", taskID)), os.ModePerm)
+		err = os.MkdirAll(filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d/src/input", taskID)), os.ModePerm)
 		assert.NoError(t, err)
-		err = os.WriteFile(filepath.Join(rootDir, fmt.Sprintf("task%d/src/input", taskID), fmt.Sprintf("%d.in.txt", inputOutputID)), []byte("Input content"), 0644)
+		err = os.WriteFile(filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d/src/input", taskID), fmt.Sprintf("%d.in.txt", inputOutputID)), []byte("Input content"), 0644)
 		assert.NoError(t, err)
 
 		// Try to retrieve input/output and expect an error
@@ -703,11 +710,12 @@ func TestDeleteTask(t *testing.T) {
 	mockConfig := &config.Config{
 		RootDirectory: rootDir,
 	}
-	ts := NewTaskService(mockConfig)
+	tu := taskutils.NewTaskUtils(mockConfig)
+	ts := NewTaskService(mockConfig, tu)
 
 	// Helper function to create a task directory with sample files
 	createTaskDir := func(taskID int) error {
-		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID))
+		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 		err := os.MkdirAll(taskDir, os.ModePerm)
 		if err != nil {
 			return fmt.Errorf("failed to create task directory: %v", err)
@@ -732,7 +740,7 @@ func TestDeleteTask(t *testing.T) {
 		assert.NoError(t, err, "expected no error deleting task directory")
 
 		// Verify that the task directory no longer exists
-		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID))
+		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 		_, err = os.Stat(taskDir)
 		assert.True(t, os.IsNotExist(err), "task directory should be deleted")
 	})
@@ -754,7 +762,7 @@ func TestDeleteTask(t *testing.T) {
 		assert.NoError(t, err, "expected no error creating task directory")
 
 		// Make the directory read-only to simulate a deletion failure
-		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID))
+		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 		err = os.Chmod(taskDir, 0444) // read-only permissions
 		assert.NoError(t, err, "expected no error changing task directory permissions")
 
@@ -776,11 +784,12 @@ func TestGetUserSolutionPackage(t *testing.T) {
 	mockConfig := &config.Config{
 		RootDirectory: rootDir,
 	}
-	ts := NewTaskService(mockConfig)
+	tu := taskutils.NewTaskUtils(mockConfig)
+	ts := NewTaskService(mockConfig, tu)
 
 	// Helper function to create input, output, and solution files for a task and user submission
 	createTaskFiles := func(taskID, userID, submissionNum int) error {
-		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID))
+		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 		inputDir := filepath.Join(taskDir, "src", "input")
 		outputDir := filepath.Join(taskDir, "src", "output")
 		solutionDir := filepath.Join(taskDir, "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
@@ -858,7 +867,7 @@ func TestGetUserSolutionPackage(t *testing.T) {
 		submissionNum := 1
 
 		// Set up files without the input directory
-		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID))
+		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 		outputDir := filepath.Join(taskDir, "src", "output")
 		solutionDir := filepath.Join(taskDir, "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
 		os.MkdirAll(outputDir, os.ModePerm)
@@ -875,7 +884,7 @@ func TestGetUserSolutionPackage(t *testing.T) {
 		submissionNum := 1
 
 		// Set up files without the output directory
-		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID))
+		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 		inputDir := filepath.Join(taskDir, "src", "input")
 		solutionDir := filepath.Join(taskDir, "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
 		os.MkdirAll(inputDir, os.ModePerm)

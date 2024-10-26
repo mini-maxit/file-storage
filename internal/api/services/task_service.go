@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
+	"github.com/mini-maxit/file-storage/internal/api/taskutils"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,13 +16,17 @@ import (
 
 // TaskService handles operations related to task management.
 type TaskService struct {
-	config *config.Config
+	config        *config.Config
+	tu            *taskutils.TaskUtils
+	taskDirectory string
 }
 
 // NewTaskService creates a new instance of TaskService with the provided configuration.
-func NewTaskService(cfg *config.Config) *TaskService {
+func NewTaskService(cfg *config.Config, tu *taskutils.TaskUtils) *TaskService {
 	return &TaskService{
-		config: cfg,
+		config:        cfg,
+		tu:            tu,
+		taskDirectory: filepath.Join(cfg.RootDirectory, "tasks"),
 	}
 }
 
@@ -30,7 +35,7 @@ func NewTaskService(cfg *config.Config) *TaskService {
 // If the directory already exists, it backs it up, attempts to create a new one, and restores it on failure.
 func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, overwrite bool) error {
 	// Define the task directory path based on the task ID
-	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+	taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 	srcDir := filepath.Join(taskDir, "src")
 	inputDir := filepath.Join(srcDir, "input")
 	outputDir := filepath.Join(srcDir, "output")
@@ -43,7 +48,7 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 		// Task directory already exists, handle backup and overwrite
 		if overwrite {
 			// Backup the existing directory to a temporary location
-			backupDir, err = ts.backupDirectory(taskDir)
+			backupDir, err = ts.tu.BackupDirectory(taskDir)
 			if err != nil {
 				return fmt.Errorf("failed to backup existing directory: %v", err)
 			}
@@ -52,7 +57,7 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 			err = os.RemoveAll(taskDir)
 			if err != nil {
 				// Clean up and return error if removal fails
-				restoreError := ts.restoreDirectory(backupDir, taskDir)
+				restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
 				if restoreError != nil {
 					return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
 				}
@@ -65,9 +70,9 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 	}
 
 	// Create the required directory structure
-	if err := ts.createDirectoryStructure(srcDir, inputDir, outputDir); err != nil {
+	if err := ts.tu.CreateDirectoryStructure(srcDir, inputDir, outputDir); err != nil {
 		// Restore the previous state if directory creation fails
-		restoreError := ts.restoreDirectory(backupDir, taskDir)
+		restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
 		if restoreError != nil {
 			return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
 		}
@@ -75,9 +80,9 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 	}
 
 	// Validate the number of input and output files
-	if err := ts.validateFiles(files); err != nil {
+	if err := ts.tu.ValidateFiles(files); err != nil {
 		// Restore the previous state if validation fails
-		restoreError := ts.restoreDirectory(backupDir, taskDir)
+		restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
 		if restoreError != nil {
 			return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
 		}
@@ -87,7 +92,7 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 	// Create the description.pdf file
 	if err := os.WriteFile(descriptionFile, files["src/description.pdf"], 0644); err != nil {
 		// Restore the previous state if writing description fails
-		restoreError := ts.restoreDirectory(backupDir, taskDir)
+		restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
 		if restoreError != nil {
 			return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
 		}
@@ -95,9 +100,9 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 	}
 
 	// Save input and output files
-	if err := ts.saveFiles(inputDir, outputDir, files); err != nil {
+	if err := ts.tu.SaveFiles(inputDir, outputDir, files); err != nil {
 		// Restore the previous state if saving files fails
-		restoreError := ts.restoreDirectory(backupDir, taskDir)
+		restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
 		if restoreError != nil {
 			return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
 		}
@@ -121,7 +126,7 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 // and creates an empty `output/` folder for the generated output files.
 func (ts *TaskService) CreateUserSubmission(taskID int, userID int, userFile []byte, fileName string) error {
 	// Define paths
-	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+	taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 	submissionsDir := filepath.Join(taskDir, "submissions")
 	userDir := filepath.Join(submissionsDir, fmt.Sprintf("user%d", userID))
 
@@ -152,12 +157,12 @@ func (ts *TaskService) CreateUserSubmission(taskID int, userID int, userFile []b
 		return fmt.Errorf("file has no extension")
 	}
 
-	if !ts.isAllowedFileExtension(fileExtension) {
+	if !ts.tu.IsAllowedFileExtension(fileExtension) {
 		return fmt.Errorf("file extension '%s' is not allowed", fileExtension)
 	}
 
 	// Get the next submission number by counting existing submission directories
-	submissionNumber, err := ts.getNextSubmissionNumber(userDir)
+	submissionNumber, err := ts.tu.GetNextSubmissionNumber(userDir)
 	if err != nil {
 		return fmt.Errorf("failed to get next submission number: %v", err)
 	}
@@ -185,7 +190,7 @@ func (ts *TaskService) CreateUserSubmission(taskID int, userID int, userFile []b
 // under the user's specific submission directory.
 func (ts *TaskService) StoreUserOutputs(taskID int, userID int, submissionNumber int, outputFiles map[string][]byte) error {
 	// Define paths for the task, user, and specific submission directories
-	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+	taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 	expectedOutputDir := filepath.Join(taskDir, "src", "output")
 	userSubmissionDir := filepath.Join(taskDir, "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNumber))
 	outputDir := filepath.Join(userSubmissionDir, "output")
@@ -224,7 +229,7 @@ func (ts *TaskService) StoreUserOutputs(taskID int, userID int, submissionNumber
 		for fileName := range outputFiles {
 			if fileName == "compile-error.err" {
 				// Save the compile-error.err file directly in the output directory
-				return ts.saveCompileErrorFile(outputDir, outputFiles[fileName])
+				return ts.tu.SaveCompileErrorFile(outputDir, outputFiles[fileName])
 			}
 		}
 	}
@@ -262,7 +267,7 @@ func (ts *TaskService) StoreUserOutputs(taskID int, userID int, submissionNumber
 // This function is useful for fetching the entire task content, preserving the folder structure.
 func (ts *TaskService) GetTaskFiles(taskID int) (string, error) {
 	// Define paths for the task and src directories
-	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+	taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 	srcDir := filepath.Join(taskDir, "src")
 
 	// Check if the src directory exists
@@ -339,7 +344,7 @@ func (ts *TaskService) GetTaskFiles(taskID int) (string, error) {
 // GetUserSubmission fetches the specific submission file for a user in a given task.
 func (ts *TaskService) GetUserSubmission(taskID int, userID int, submissionNum int) ([]byte, string, error) {
 	// Define the path to the specific submission directory
-	submissionDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID), "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
+	submissionDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID), "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
 
 	// Check if the submission directory exists
 	if _, err := os.Stat(submissionDir); os.IsNotExist(err) {
@@ -382,7 +387,7 @@ func (ts *TaskService) GetUserSubmission(taskID int, userID int, submissionNum i
 // This is useful for accessing specific input/output pairs based on their ID.
 func (ts *TaskService) GetInputOutput(taskID int, inputOutputID int) (string, error) {
 	// Define paths for the task and the specific input/output directories
-	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+	taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 	inputDir := filepath.Join(taskDir, "src", "input")
 	outputDir := filepath.Join(taskDir, "src", "output")
 
@@ -459,7 +464,7 @@ func (ts *TaskService) GetInputOutput(taskID int, inputOutputID int) (string, er
 // DeleteTask deletes the directory of a specific task, including all associated files and submissions.
 func (ts *TaskService) DeleteTask(taskID int) error {
 	// Construct the task directory path
-	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+	taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 
 	// Check if the task directory exists
 	_, err := os.Stat(taskDir)
@@ -482,7 +487,7 @@ func (ts *TaskService) DeleteTask(taskID int) error {
 // organizing it in a structured .tar.gz archive containing inputs, outputs, and the solution file.
 func (ts *TaskService) GetUserSolutionPackage(taskID, userID, submissionNum int) (string, error) {
 	// Define paths for the task directories and files
-	taskDir := filepath.Join(ts.config.RootDirectory, fmt.Sprintf("task%d", taskID))
+	taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 	inputDir := filepath.Join(taskDir, "src", "input")
 	outputDir := filepath.Join(taskDir, "src", "output")
 	solutionPattern := filepath.Join(taskDir, "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum), "solution.*")
@@ -588,193 +593,4 @@ func (ts *TaskService) GetUserSolutionPackage(taskID, userID, submissionNum int)
 
 	// Return the path to the created .tar.gz file
 	return tarFilePath, nil
-}
-
-// backupDirectory creates a backup of an existing directory in a temporary location.
-func (ts *TaskService) backupDirectory(taskDir string) (string, error) {
-	backupDir, err := os.MkdirTemp("", "task_backup_*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temporary backup directory: %v", err)
-	}
-
-	err = copyDir(taskDir, backupDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to copy directory for backup: %v", err)
-	}
-
-	return backupDir, nil
-}
-
-// restoreDirectory restores a backup directory to the original task directory.
-func (ts *TaskService) restoreDirectory(backupDir, taskDir string) error {
-	err := os.RemoveAll(taskDir)
-	if err != nil {
-		return fmt.Errorf("failed to remove incomplete task directory for restoration: %v", err)
-	}
-
-	err = copyDir(backupDir, taskDir)
-	if err != nil {
-		return fmt.Errorf("failed to restore task directory from backup: %v", err)
-	}
-
-	return nil
-}
-
-// copyDir copies the contents of one directory to another.
-func copyDir(srcDir, destDir string) error {
-	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		relPath, err := filepath.Rel(srcDir, path)
-		if err != nil {
-			return err
-		}
-
-		destPath := filepath.Join(destDir, relPath)
-
-		if info.IsDir() {
-			return os.MkdirAll(destPath, info.Mode())
-		}
-
-		return copyFile(path, destPath)
-	})
-}
-
-// copyFile copies a file from src to dst.
-func copyFile(src, dst string) error {
-	sourceFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer sourceFile.Close()
-
-	destFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer destFile.Close()
-
-	_, err = io.Copy(destFile, sourceFile)
-	if err != nil {
-		return err
-	}
-
-	// Ensure permissions match
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	return os.Chmod(dst, info.Mode())
-}
-
-// createDirectoryStructure creates the required directory structure for a task.
-func (ts *TaskService) createDirectoryStructure(srcDir, inputDir, outputDir string) error {
-	// Create src, input, and output directories
-	if err := os.MkdirAll(srcDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create src directory: %v", err)
-	}
-	if err := os.MkdirAll(inputDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create input directory: %v", err)
-	}
-	if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create output directory: %v", err)
-	}
-	return nil
-}
-
-// validateFiles checks if the number of input and output files matches and if all files have a .txt extension.
-func (ts *TaskService) validateFiles(files map[string][]byte) error {
-	var inputFiles, outputFiles []string
-
-	for fileName := range files {
-		if strings.HasPrefix(fileName, "src/input/") {
-			if filepath.Ext(fileName) != ".txt" {
-				return errors.New("only .txt files are allowed for input files")
-			}
-			inputFiles = append(inputFiles, fileName)
-		} else if strings.HasPrefix(fileName, "src/output/") {
-			if filepath.Ext(fileName) != ".txt" {
-				return errors.New("only .txt files are allowed for output files")
-			}
-			outputFiles = append(outputFiles, fileName)
-		} else {
-			if filepath.Ext(fileName) != ".pdf" {
-				return errors.New("description must have a .pdf extension")
-			}
-		}
-	}
-
-	if len(inputFiles) != len(outputFiles) {
-		return errors.New("the number of input files must match the number of output files")
-	}
-
-	return nil
-}
-
-// saveFiles saves input and output files to their respective directories in the {number}.in.txt and {number}.out.txt format.
-func (ts *TaskService) saveFiles(inputDir, outputDir string, files map[string][]byte) error {
-	inputCount := 1
-	outputCount := 1
-
-	// Save input files with the {number}.in.txt format
-	for fileName, fileContent := range files {
-		if strings.HasPrefix(fileName, "src/input/") {
-			newFileName := fmt.Sprintf("%d.in.txt", inputCount)
-			if err := os.WriteFile(filepath.Join(inputDir, newFileName), fileContent, 0644); err != nil {
-				return fmt.Errorf("failed to save input file %s: %v", fileName, err)
-			}
-			inputCount++
-		}
-	}
-
-	// Save output files with the {number}.out.txt format
-	for fileName, fileContent := range files {
-		if strings.HasPrefix(fileName, "src/output/") {
-			newFileName := fmt.Sprintf("%d.out.txt", outputCount)
-			if err := os.WriteFile(filepath.Join(outputDir, newFileName), fileContent, 0644); err != nil {
-				return fmt.Errorf("failed to save output file %s: %v", fileName, err)
-			}
-			outputCount++
-		}
-	}
-
-	return nil
-}
-
-// getNextSubmissionNumber determines the next submission number for a user by counting existing submissions.
-func (ts *TaskService) getNextSubmissionNumber(userDir string) (int, error) {
-	entries, err := os.ReadDir(userDir)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read user directory: %v", err)
-	}
-
-	submissionCount := 0
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "submission") {
-			submissionCount++
-		}
-	}
-
-	return submissionCount + 1, nil
-}
-
-// isAllowedFileExtension checks if the given file extension is in the allowed list from the configuration.
-func (ts *TaskService) isAllowedFileExtension(extension string) bool {
-	for _, allowedExtension := range ts.config.AllowedFileTypes {
-		if extension == allowedExtension {
-			return true
-		}
-	}
-	return false
-}
-
-// saveCompileErrorFile saves the compile-error.err file in the output directory
-func (ts *TaskService) saveCompileErrorFile(outputDir string, fileContent []byte) error {
-	filePath := filepath.Join(outputDir, "compile-error.err")
-	if err := os.WriteFile(filePath, fileContent, 0644); err != nil {
-		return fmt.Errorf("failed to save compile-error.err: %v", err)
-	}
-	return nil
 }

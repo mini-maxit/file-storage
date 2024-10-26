@@ -3,8 +3,8 @@ package server
 import (
 	"fmt"
 	"github.com/mini-maxit/file-storage/internal/api/http/initialization"
-	"github.com/mini-maxit/file-storage/internal/helpers"
-	"github.com/mini-maxit/file-storage/internal/services"
+	"github.com/mini-maxit/file-storage/internal/api/http/utils"
+	"github.com/mini-maxit/file-storage/internal/api/services"
 	"github.com/sirupsen/logrus"
 	"io"
 	"net/http"
@@ -339,7 +339,7 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 		// Set headers and serve the .tar.gz file
 		w.Header().Set("Content-Type", "application/gzip")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=task%dFiles.tar.gz", taskID))
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", helpers.FileSize(tarFile)))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", utils.FileSize(tarFile)))
 
 		// Stream the file content to the response
 		_, err = io.Copy(w, tarFile)
@@ -465,7 +465,7 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 		// Set headers and serve the .tar.gz file
 		w.Header().Set("Content-Type", "application/gzip")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=Task%dInputOutput%dFiles.tar.gz", taskID, inputOutputID))
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", helpers.FileSize(tarFile)))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", utils.FileSize(tarFile)))
 
 		// Stream the file content to the response
 		_, err = io.Copy(w, tarFile)
@@ -535,7 +535,7 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 		// Set headers and serve the .tar.gz file
 		w.Header().Set("Content-Type", "application/gzip")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=Task%d_User%d_Submission%d_Package.tar.gz", taskID, userID, submissionNum))
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", helpers.FileSize(tarFile)))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", utils.FileSize(tarFile)))
 
 		// Stream the file content to the response
 		_, err = io.Copy(w, tarFile)
