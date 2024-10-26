@@ -3,6 +3,7 @@ package taskutils
 import (
 	"errors"
 	"fmt"
+	"github.com/mini-maxit/file-storage/utils"
 	"io"
 	"os"
 	"path/filepath"
@@ -82,13 +83,13 @@ func (tu *TaskUtils) CopyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer sourceFile.Close()
+	defer utils.CloseIO(sourceFile)
 
 	destFile, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer destFile.Close()
+	defer utils.CloseIO(destFile)
 
 	_, err = io.Copy(destFile, sourceFile)
 	if err != nil {
