@@ -44,6 +44,7 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 	descriptionFile := filepath.Join(srcDir, "description.pdf")
 
 	var backupDir string
+	shouldRestore := false
 
 	// Check if the task directory already exists
 	if _, err := os.Stat(taskDir); err == nil {
@@ -51,6 +52,7 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 		if overwrite {
 			// Backup the existing directory to a temporary location
 			backupDir, err = ts.tu.BackupDirectory(taskDir)
+			shouldRestore = true
 			if err != nil {
 				return fmt.Errorf("failed to backup existing directory: %v", err)
 			}
@@ -74,9 +76,11 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 	// Create the required directory structure
 	if err := ts.tu.CreateDirectoryStructure(srcDir, inputDir, outputDir); err != nil {
 		// Restore the previous state if directory creation fails
-		restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
-		if restoreError != nil {
-			return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
+		if shouldRestore {
+			restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
+			if restoreError != nil {
+				return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
+			}
 		}
 		return err
 	}
@@ -84,9 +88,11 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 	// Validate the number of input and output files
 	if err := ts.tu.ValidateFiles(files); err != nil {
 		// Restore the previous state if validation fails
-		restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
-		if restoreError != nil {
-			return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
+		if shouldRestore {
+			restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
+			if restoreError != nil {
+				return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
+			}
 		}
 		return err
 	}
@@ -94,9 +100,11 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 	// Create the description.pdf file
 	if err := os.WriteFile(descriptionFile, files["src/description.pdf"], 0644); err != nil {
 		// Restore the previous state if writing description fails
-		restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
-		if restoreError != nil {
-			return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
+		if shouldRestore {
+			restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
+			if restoreError != nil {
+				return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
+			}
 		}
 		return fmt.Errorf("failed to create description.pdf: %v", err)
 	}
@@ -104,9 +112,11 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 	// Save input and output files
 	if err := ts.tu.SaveFiles(inputDir, outputDir, files); err != nil {
 		// Restore the previous state if saving files fails
-		restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
-		if restoreError != nil {
-			return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
+		if shouldRestore {
+			restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
+			if restoreError != nil {
+				return fmt.Errorf("failed to restore existing directory: %v \n restoring because: %v", restoreError, err)
+			}
 		}
 		return err
 	}
