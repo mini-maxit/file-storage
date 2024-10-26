@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mini-maxit/file-storage/internal/api/taskutils"
+	"github.com/mini-maxit/file-storage/utils"
 	"io"
 	"os"
 	"path/filepath"
@@ -315,15 +316,15 @@ func (ts *TaskService) GetTaskFiles(taskID int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create temporary tar file: %v", err)
 	}
-	defer tarFile.Close()
+	defer utils.CloseIO(tarFile)
 
 	// Initialize gzip writer
 	gzipWriter := gzip.NewWriter(tarFile)
-	defer gzipWriter.Close()
+	defer utils.CloseIO(gzipWriter)
 
 	// Initialize tar writer
 	tarWriter := tar.NewWriter(gzipWriter)
-	defer tarWriter.Close()
+	defer utils.CloseIO(tarWriter)
 
 	// Walk through the src directory and add files to the TAR archive
 	err = filepath.Walk(srcDir, func(filePath string, info os.FileInfo, err error) error {
@@ -359,7 +360,7 @@ func (ts *TaskService) GetTaskFiles(taskID int) (string, error) {
 		if err != nil {
 			return fmt.Errorf("failed to open file %s: %v", filePath, err)
 		}
-		defer file.Close()
+		defer utils.CloseIO(file)
 
 		if _, err := io.Copy(tarWriter, file); err != nil {
 			return fmt.Errorf("failed to write file %s to tar: %v", filePath, err)
@@ -451,15 +452,15 @@ func (ts *TaskService) GetInputOutput(taskID int, inputOutputID int) (string, er
 	if err != nil {
 		return "", fmt.Errorf("failed to create temporary tar file: %v", err)
 	}
-	defer tarFile.Close()
+	defer utils.CloseIO(tarFile)
 
 	// Initialize gzip writer
 	gzipWriter := gzip.NewWriter(tarFile)
-	defer gzipWriter.Close()
+	defer utils.CloseIO(gzipWriter)
 
 	// Initialize tar writer
 	tarWriter := tar.NewWriter(gzipWriter)
-	defer tarWriter.Close()
+	defer utils.CloseIO(tarWriter)
 
 	// Add input and output files to the TAR archive with only the base filename
 	for _, filePath := range []string{inputFilePath, outputFilePath} {
@@ -468,7 +469,6 @@ func (ts *TaskService) GetInputOutput(taskID int, inputOutputID int) (string, er
 		if err != nil {
 			return "", fmt.Errorf("failed to open file %s: %v", filePath, err)
 		}
-		defer file.Close()
 
 		// Gather file info and set up the TAR header
 		info, err := file.Stat()
@@ -489,6 +489,8 @@ func (ts *TaskService) GetInputOutput(taskID int, inputOutputID int) (string, er
 		if _, err := io.Copy(tarWriter, file); err != nil {
 			return "", fmt.Errorf("failed to write file %s to tar: %v", filePath, err)
 		}
+
+		utils.CloseIO(file)
 	}
 
 	// Return the path to the created TAR.GZ file
@@ -553,14 +555,14 @@ func (ts *TaskService) GetUserSolutionPackage(taskID, userID, submissionNum int)
 	if err != nil {
 		return "", fmt.Errorf("failed to create temporary tar file: %v", err)
 	}
-	defer tarFile.Close()
+	defer utils.CloseIO(tarFile)
 
 	// Initialize gzip and tar writers
 	gzipWriter := gzip.NewWriter(tarFile)
-	defer gzipWriter.Close()
+	defer utils.CloseIO(gzipWriter)
 
 	tarWriter := tar.NewWriter(gzipWriter)
-	defer tarWriter.Close()
+	defer utils.CloseIO(tarWriter)
 
 	// Function to add files to the archive with specified path
 	addFileToTar := func(filePath, tarPath string) error {
@@ -568,7 +570,7 @@ func (ts *TaskService) GetUserSolutionPackage(taskID, userID, submissionNum int)
 		if err != nil {
 			return fmt.Errorf("failed to open file %s: %v", filePath, err)
 		}
-		defer file.Close()
+		defer utils.CloseIO(file)
 
 		info, err := file.Stat()
 		if err != nil {

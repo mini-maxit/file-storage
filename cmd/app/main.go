@@ -31,7 +31,7 @@ func main() {
 	taskService := services.NewTaskService(_config, taskUtils)
 
 	addr := ":" + _config.Port
-	_server := server.NewServer(init, taskService)
+	_server := server.NewServer(taskService)
 	err = _server.Run(addr)
 	if err != nil {
 		logrus.Fatalf("server stopped: %v", err)

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"github.com/mini-maxit/file-storage/internal/api/taskutils"
+	"github.com/mini-maxit/file-storage/utils"
 	"io"
 	"os"
 	"path/filepath"
@@ -464,12 +465,12 @@ func TestGetTaskFiles(t *testing.T) {
 		// Open the created .tar.gz file and verify its contents
 		tarFile, err := os.Open(tarFilePath)
 		assert.NoError(t, err, "failed to open created .tar.gz file")
-		defer tarFile.Close()
+		defer utils.CloseIO(tarFile)
 
 		// Initialize gzip and tar readers
 		gzipReader, err := gzip.NewReader(tarFile)
 		assert.NoError(t, err, "failed to create gzip reader")
-		defer gzipReader.Close()
+		defer utils.CloseIO(gzipReader)
 
 		tarReader := tar.NewReader(gzipReader)
 		filesFound := map[string]bool{
@@ -869,10 +870,16 @@ func TestGetUserSolutionPackage(t *testing.T) {
 		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 		outputDir := filepath.Join(taskDir, "src", "output")
 		solutionDir := filepath.Join(taskDir, "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
-		os.MkdirAll(outputDir, os.ModePerm)
-		os.MkdirAll(solutionDir, os.ModePerm)
+		err := os.MkdirAll(outputDir, os.ModePerm)
+		if err != nil {
+			return
+		}
+		err = os.MkdirAll(solutionDir, os.ModePerm)
+		if err != nil {
+			return
+		}
 
-		_, err := ts.GetUserSolutionPackage(taskID, userID, submissionNum)
+		_, err = ts.GetUserSolutionPackage(taskID, userID, submissionNum)
 		assert.Error(t, err, "expected an error for missing input directory")
 	})
 
@@ -886,10 +893,16 @@ func TestGetUserSolutionPackage(t *testing.T) {
 		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 		inputDir := filepath.Join(taskDir, "src", "input")
 		solutionDir := filepath.Join(taskDir, "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
-		os.MkdirAll(inputDir, os.ModePerm)
-		os.MkdirAll(solutionDir, os.ModePerm)
+		err := os.MkdirAll(inputDir, os.ModePerm)
+		if err != nil {
+			return
+		}
+		err = os.MkdirAll(solutionDir, os.ModePerm)
+		if err != nil {
+			return
+		}
 
-		_, err := ts.GetUserSolutionPackage(taskID, userID, submissionNum)
+		_, err = ts.GetUserSolutionPackage(taskID, userID, submissionNum)
 		assert.Error(t, err, "expected an error for missing output directory")
 	})
 
@@ -903,10 +916,16 @@ func TestGetUserSolutionPackage(t *testing.T) {
 		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID))
 		inputDir := filepath.Join(taskDir, "src", "input")
 		outputDir := filepath.Join(taskDir, "src", "output")
-		os.MkdirAll(inputDir, os.ModePerm)
-		os.MkdirAll(outputDir, os.ModePerm)
+		err := os.MkdirAll(inputDir, os.ModePerm)
+		if err != nil {
+			return
+		}
+		err = os.MkdirAll(outputDir, os.ModePerm)
+		if err != nil {
+			return
+		}
 
-		_, err := ts.GetUserSolutionPackage(taskID, userID, submissionNum)
+		_, err = ts.GetUserSolutionPackage(taskID, userID, submissionNum)
 		assert.Error(t, err, "expected an error for missing solution file")
 	})
 }
@@ -915,11 +934,11 @@ func TestGetUserSolutionPackage(t *testing.T) {
 func validateTarContents(t *testing.T, tarFilePath string, expectedFiles map[string]string) {
 	tarFile, err := os.Open(tarFilePath)
 	assert.NoError(t, err, "expected no error opening tar.gz file")
-	defer tarFile.Close()
+	defer utils.CloseIO(tarFile)
 
 	gzipReader, err := gzip.NewReader(tarFile)
 	assert.NoError(t, err, "expected no error creating gzip reader")
-	defer gzipReader.Close()
+	defer utils.CloseIO(gzipReader)
 
 	tarReader := tar.NewReader(gzipReader)
 	foundFiles := make(map[string]string)

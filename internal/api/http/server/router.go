@@ -2,9 +2,8 @@ package server
 
 import (
 	"fmt"
-	"github.com/mini-maxit/file-storage/internal/api/http/initialization"
-	"github.com/mini-maxit/file-storage/internal/api/http/utils"
 	"github.com/mini-maxit/file-storage/internal/api/services"
+	"github.com/mini-maxit/file-storage/utils"
 	"github.com/sirupsen/logrus"
 	"io"
 	"net/http"
@@ -21,7 +20,7 @@ func (s *Server) Run(addr string) error {
 	return http.ListenAndServe(addr, s.mux)
 }
 
-func NewServer(init *initialization.Initialization, ts *services.TaskService) *Server {
+func NewServer(ts *services.TaskService) *Server {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/createTask", func(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +70,7 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 			http.Error(w, "Description file is required.", http.StatusBadRequest)
 			return
 		}
-		defer descriptionFile.Close()
+		defer utils.CloseIO(descriptionFile)
 		descriptionContent, err := io.ReadAll(descriptionFile)
 		if err != nil {
 			http.Error(w, "Failed to read description file.", http.StatusInternalServerError)
@@ -87,12 +86,15 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 				http.Error(w, "Failed to open input file.", http.StatusInternalServerError)
 				return
 			}
-			defer file.Close()
+
 			content, err := io.ReadAll(file)
 			if err != nil {
 				http.Error(w, "Failed to read input file.", http.StatusInternalServerError)
 				return
 			}
+
+			utils.CloseIO(file)
+
 			filesMap["src/input/"+fileHeader.Filename] = content
 		}
 
@@ -104,12 +106,15 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 				http.Error(w, "Failed to open output file.", http.StatusInternalServerError)
 				return
 			}
-			defer file.Close()
+
 			content, err := io.ReadAll(file)
 			if err != nil {
 				http.Error(w, "Failed to read output file.", http.StatusInternalServerError)
 				return
 			}
+
+			utils.CloseIO(file)
+
 			filesMap["src/output/"+fileHeader.Filename] = content
 		}
 
@@ -120,7 +125,10 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 			return
 		}
 
-		w.Write([]byte("Task directory created successfully"))
+		_, err = w.Write([]byte("Task directory created successfully"))
+		if err != nil {
+			return
+		}
 	})
 
 	mux.HandleFunc("/submit", func(w http.ResponseWriter, r *http.Request) {
@@ -164,7 +172,7 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 			http.Error(w, "Submission file is required.", http.StatusBadRequest)
 			return
 		}
-		defer file.Close()
+		defer utils.CloseIO(file)
 
 		// Read the file content
 		fileContent, err := io.ReadAll(file)
@@ -180,7 +188,10 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 			return
 		}
 
-		w.Write([]byte("Submission created successfully"))
+		_, err = w.Write([]byte("Submission created successfully"))
+		if err != nil {
+			return
+		}
 	})
 
 	mux.HandleFunc("/storeOutputs", func(w http.ResponseWriter, r *http.Request) {
@@ -237,13 +248,14 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 				http.Error(w, "Failed to open output file.", http.StatusInternalServerError)
 				return
 			}
-			defer file.Close()
 
 			content, err := io.ReadAll(file)
 			if err != nil {
 				http.Error(w, "Failed to read output file.", http.StatusInternalServerError)
 				return
 			}
+
+			utils.CloseIO(file)
 
 			outputFiles[fileHeader.Filename] = content
 		}
@@ -256,13 +268,14 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 				http.Error(w, "Failed to open error file.", http.StatusInternalServerError)
 				return
 			}
-			defer file.Close()
 
 			content, err := io.ReadAll(file)
 			if err != nil {
 				http.Error(w, "Failed to read error file.", http.StatusInternalServerError)
 				return
 			}
+
+			utils.CloseIO(file)
 
 			errorFile[fileHeader.Filename] = content
 		}
@@ -285,7 +298,10 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 				http.Error(w, fmt.Sprintf("Failed to store output files: %v", err), http.StatusInternalServerError)
 				return
 			}
-			w.Write([]byte("Output files stored successfully"))
+			_, err = w.Write([]byte("Output files stored successfully"))
+			if err != nil {
+				return
+			}
 			return
 		}
 
@@ -296,7 +312,10 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 				http.Error(w, fmt.Sprintf("Failed to store error file: %v", err), http.StatusInternalServerError)
 				return
 			}
-			w.Write([]byte("Error file stored successfully"))
+			_, err = w.Write([]byte("Error file stored successfully"))
+			if err != nil {
+				return
+			}
 			return
 		}
 	})
@@ -326,7 +345,7 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 			http.Error(w, fmt.Sprintf("Failed to retrieve task files: %v", err), http.StatusInternalServerError)
 			return
 		}
-		defer os.Remove(tarFilePath)
+		defer utils.RemoveDirectory(tarFilePath)
 
 		// Open the .tar.gz file
 		tarFile, err := os.Open(tarFilePath)
@@ -334,7 +353,7 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 			http.Error(w, "Failed to open task files archive.", http.StatusInternalServerError)
 			return
 		}
-		defer tarFile.Close()
+		defer utils.CloseIO(tarFile)
 
 		// Set headers and serve the .tar.gz file
 		w.Header().Set("Content-Type", "application/gzip")
@@ -452,7 +471,7 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 			http.Error(w, fmt.Sprintf("Failed to retrieve Input and Output files: %v", err), http.StatusInternalServerError)
 			return
 		}
-		defer os.Remove(tarFilePath)
+		defer utils.RemoveDirectory(tarFilePath)
 
 		// Open the .tar.gz file
 		tarFile, err := os.Open(tarFilePath)
@@ -460,7 +479,7 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 			http.Error(w, "Failed to open files archive.", http.StatusInternalServerError)
 			return
 		}
-		defer tarFile.Close()
+		defer utils.CloseIO(tarFile)
 
 		// Set headers and serve the .tar.gz file
 		w.Header().Set("Content-Type", "application/gzip")
@@ -522,7 +541,7 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 			http.Error(w, fmt.Sprintf("Failed to retrieve solution package: %v", err), http.StatusInternalServerError)
 			return
 		}
-		defer os.Remove(tarFilePath) // Clean up the temporary file after response
+		defer utils.RemoveDirectory(tarFilePath) // Clean up the temporary file after response
 
 		// Open the .tar.gz file
 		tarFile, err := os.Open(tarFilePath)
@@ -530,7 +549,7 @@ func NewServer(init *initialization.Initialization, ts *services.TaskService) *S
 			http.Error(w, "Failed to open solution package.", http.StatusInternalServerError)
 			return
 		}
-		defer tarFile.Close()
+		defer utils.CloseIO(tarFile)
 
 		// Set headers and serve the .tar.gz file
 		w.Header().Set("Content-Type", "application/gzip")
