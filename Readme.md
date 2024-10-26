@@ -148,7 +148,7 @@ Request example:
 - Success: Returns a file containing user's solution for the requested submission
 - Failure: 400 or 500 error code with a specific error message.
 
-### 5. Get Input/Output Files
+### 6. Get Input/Output Files
     Endpoint: /getInputOutput
     Method: GET
     Description: Retrieves specific input and output files for a given task.
@@ -168,7 +168,7 @@ Request example:
   - input and output files
 - Failure: 400 or 500 error code with a specific error message.
 
-### 6. Delete Task
+### 7. Delete Task
 
 - Endpoint: /deleteTask
 - Method: DELETE
@@ -190,7 +190,7 @@ Request example:
   - 404 Not Found if the task directory does not exist.
   - 500 Internal Server Error if there is an error during the deletion process.
 
-### 7. Get User Solution Package
+### 8. Get User Solution Package
 
 - Endpoint: /getSolutionPackage
 - Method: GET
