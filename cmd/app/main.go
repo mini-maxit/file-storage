@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/mini-maxit/file-storage/internal/api/services"
+	"github.com/mini-maxit/file-storage/internal/api/taskutils"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -17,12 +19,21 @@ func main() {
 			logrus.Fatalf("could not load .env file. %s", err)
 		}
 	}
-	config := config.NewConfig()
-	init := initialization.NewInitialization(config)
-	server := server.NewServer(init)
-	err := server.Run(":8080")
+
+	_config := config.NewConfig()
+	init := initialization.NewInitialization(_config)
+	err := init.InitializeRootDirectory()
+	if err != nil {
+		logrus.Fatalf("failed to initialize root directory: %v", err)
+	}
+
+	taskUtils := taskutils.NewTaskUtils(_config)
+	taskService := services.NewTaskService(_config, taskUtils)
+
+	addr := ":" + _config.Port
+	_server := server.NewServer(taskService)
+	err = _server.Run(addr)
 	if err != nil {
 		logrus.Fatalf("server stopped: %v", err)
 	}
-
 }
