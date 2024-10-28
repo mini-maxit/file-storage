@@ -29,6 +29,28 @@ To set up and run the File Storage API, follow these steps:
     make
     ```
 ## Endpoints
+
+### Error Structure
+
+When an error occurs, the response is returned in JSON format with the following structure: 
+
+```json
+{
+  "reason": "A brief explanation of the error",
+  "details": "A more detailed description of the error",
+  "context": {
+    "key": "value",
+    "key2": "value2"
+  }
+}
+```
+
+**Field Descriptions**:
+
+- reason: A high-level message describing the cause of the error, such as "Failed to process task" or "Submission not found."
+- details: A more specific message or description of the error, often based on the underlying issue (e.g., "Invalid task parameters").
+- context: An optional field containing additional context information about the error. This might include values like taskID, userID, submissionNumber, or other key-value pairs that provide insight into the specific conditions under which the error occurred. This field is included when relevant context is available.
+
 ### 1. Create Task
 - Endpoint: /createTask
 - Method: POST

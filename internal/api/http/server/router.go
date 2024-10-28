@@ -119,9 +119,12 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Invoke the service function
-		err = ts.CreateTaskDirectory(taskID, filesMap, overwrite)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to create task directory: %v", err), http.StatusInternalServerError)
+		serviceErr := ts.CreateTaskDirectory(taskID, filesMap, overwrite)
+		if serviceErr != nil {
+			services.WriteServiceError(serviceErr, w, "Failed to create Task Directory", map[string]interface{}{
+				"taskID":    taskID,
+				"overwrite": overwrite,
+			})
 			return
 		}
 
@@ -182,9 +185,13 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Invoke the service function to handle the submission
-		err = ts.CreateUserSubmission(taskID, userID, fileContent, fileHeader.Filename)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to create submission: %v", err), http.StatusInternalServerError)
+		serviceErr := ts.CreateUserSubmission(taskID, userID, fileContent, fileHeader.Filename)
+		if serviceErr != nil {
+			services.WriteServiceError(serviceErr, w, "Failed to create User Submission", map[string]interface{}{
+				"taskID":   taskID,
+				"userID":   userID,
+				"fileName": fileHeader.Filename,
+			})
 			return
 		}
 
@@ -293,9 +300,13 @@ func NewServer(ts *services.TaskService) *Server {
 
 		// If output files are provided, store them
 		if len(outputFiles) > 0 {
-			err := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
-			if err != nil {
-				http.Error(w, fmt.Sprintf("Failed to store output files: %v", err), http.StatusInternalServerError)
+			serviceErr := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
+			if serviceErr != nil {
+				services.WriteServiceError(serviceErr, w, "Failed to store user outputs", map[string]interface{}{
+					"taskID":     taskID,
+					"userID":     userID,
+					"submission": submissionNumberStr,
+				})
 				return
 			}
 			_, err = w.Write([]byte("Output files stored successfully"))
@@ -307,9 +318,14 @@ func NewServer(ts *services.TaskService) *Server {
 
 		// If an error file is provided, store it
 		if len(errorFile) > 0 {
-			err := ts.StoreUserOutputs(taskID, userID, submissionNumber, errorFile)
-			if err != nil {
-				http.Error(w, fmt.Sprintf("Failed to store error file: %v", err), http.StatusInternalServerError)
+			serviceErr := ts.StoreUserOutputs(taskID, userID, submissionNumber, errorFile)
+			if serviceErr != nil {
+				services.WriteServiceError(serviceErr, w, "Failed to store user outputs", map[string]interface{}{
+					"taskID":     taskID,
+					"userID":     userID,
+					"errorFile":  errorFile,
+					"submission": submissionNumberStr,
+				})
 				return
 			}
 			_, err = w.Write([]byte("Error file stored successfully"))
@@ -340,9 +356,11 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Call GetTaskFiles to retrieve the task files as a .tar.gz archive
-		tarFilePath, err := ts.GetTaskFiles(taskID)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to retrieve task files: %v", err), http.StatusInternalServerError)
+		tarFilePath, serviceErr := ts.GetTaskFiles(taskID)
+		if serviceErr != nil {
+			services.WriteServiceError(serviceErr, w, "Failed to get task files", map[string]interface{}{
+				"taskID": taskID,
+			})
 			return
 		}
 		defer utils.RemoveDirectory(tarFilePath)
@@ -415,9 +433,13 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Retrieve the user's submission file content
-		fileContent, fileName, err := ts.GetUserSubmission(taskID, userID, submissionNumber)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to retrieve submission file: %v", err), http.StatusInternalServerError)
+		fileContent, fileName, serviceErr := ts.GetUserSubmission(taskID, userID, submissionNumber)
+		if serviceErr != nil {
+			services.WriteServiceError(serviceErr, w, "Failed to get user submission files", map[string]interface{}{
+				"taskID":     taskID,
+				"userID":     userID,
+				"submission": submissionNumberStr,
+			})
 			return
 		}
 
@@ -466,9 +488,12 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Call GetTaskFiles to retrieve the task files as a .tar.gz archive
-		tarFilePath, err := ts.GetInputOutput(taskID, inputOutputID)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to retrieve Input and Output files: %v", err), http.StatusInternalServerError)
+		tarFilePath, serviceErr := ts.GetInputOutput(taskID, inputOutputID)
+		if serviceErr != nil {
+			services.WriteServiceError(serviceErr, w, "Failed to get input output files", map[string]interface{}{
+				"taskID":        taskID,
+				"inputOutputID": inputOutputID,
+			})
 			return
 		}
 		defer utils.RemoveDirectory(tarFilePath)
@@ -536,9 +561,13 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Call GetUserSolutionPackage to retrieve the package as a .tar.gz archive
-		tarFilePath, err := ts.GetUserSolutionPackage(taskID, userID, submissionNum)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to retrieve solution package: %v", err), http.StatusInternalServerError)
+		tarFilePath, serviceErr := ts.GetUserSolutionPackage(taskID, userID, submissionNum)
+		if serviceErr != nil {
+			services.WriteServiceError(serviceErr, w, "Failed to get user submission files", map[string]interface{}{
+				"taskID":        taskID,
+				"userID":        userID,
+				"submissionNum": submissionNum,
+			})
 			return
 		}
 		defer utils.RemoveDirectory(tarFilePath) // Clean up the temporary file after response
@@ -586,9 +615,11 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Call DeleteTask to delete the specified task directory
-		err = ts.DeleteTask(taskID)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to delete task %d: %v", taskID, err), http.StatusInternalServerError)
+		serviceErr := ts.DeleteTask(taskID)
+		if serviceErr != nil {
+			services.WriteServiceError(serviceErr, w, "Failed to delete task", map[string]interface{}{
+				"taskID": taskID,
+			})
 			return
 		}
 
