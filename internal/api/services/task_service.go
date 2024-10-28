@@ -49,27 +49,27 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 	// Check if the task directory already exists
 	if _, err := os.Stat(taskDir); err == nil {
 		// Task directory already exists, handle backup and overwrite
-		if overwrite {
-			// Backup the existing directory to a temporary location
-			backupDir, err = ts.tu.BackupDirectory(taskDir)
-			shouldRestore = true
-			if err != nil {
-				return ErrFailedBackupDirectory
-			}
-
-			// Remove the existing directory to prepare for the new structure
-			err = os.RemoveAll(taskDir)
-			if err != nil {
-				// Clean up and return error if removal fails
-				restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
-				if restoreError != nil {
-					return ErrFailedRestoreDirectory
-				}
-				return ErrFailedRemoveDirectory
-			}
-		} else {
+		if !overwrite {
 			// If overwrite flag is set to false, return an error
 			return ErrDirectoryAlreadyExists
+		}
+
+		// Backup the existing directory to a temporary location
+		backupDir, err = ts.tu.BackupDirectory(taskDir)
+		shouldRestore = true
+		if err != nil {
+			return ErrFailedBackupDirectory
+		}
+
+		// Remove the existing directory to prepare for the new structure
+		err = os.RemoveAll(taskDir)
+		if err != nil {
+			// Clean up and return error if removal fails
+			restoreError := ts.tu.RestoreDirectory(backupDir, taskDir)
+			if restoreError != nil {
+				return ErrFailedRestoreDirectory
+			}
+			return ErrFailedRemoveDirectory
 		}
 	}
 
@@ -251,8 +251,10 @@ func (ts *TaskService) StoreUserOutputs(taskID int, userID int, submissionNumber
 	// Map expected output numbers from the task's output directory
 	expectedOutputCount := 0
 	expectedNumbers := make(map[int]bool)
+
+	re := regexp.MustCompile(`^(\d+)\.out$`)
 	for _, file := range expectedFiles {
-		if matches := regexp.MustCompile(`^(\d+)\.out$`).FindStringSubmatch(file.Name()); matches != nil {
+		if matches := re.FindStringSubmatch(file.Name()); matches != nil {
 			num, _ := strconv.Atoi(matches[1])
 			expectedNumbers[num] = true
 			expectedOutputCount++
