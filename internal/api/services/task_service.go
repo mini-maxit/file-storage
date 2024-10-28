@@ -244,6 +244,7 @@ func (ts *TaskService) StoreUserOutputs(taskID int, userID int, submissionNumber
 				if err != nil {
 					return ErrFailedToSaveCompileError
 				}
+				return nil
 			}
 		}
 	}

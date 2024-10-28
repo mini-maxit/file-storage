@@ -96,8 +96,8 @@ func TestCreateTaskDirectory(t *testing.T) {
 
 		// Verify the files have been overwritten
 		descriptionFile := filepath.Join(ts.taskDirectory, "task1", "src", "description.pdf")
-		content, err := os.ReadFile(descriptionFile)
-		assert.NoError(t, err, "expected no error reading description.pdf")
+		content, checkErr := os.ReadFile(descriptionFile)
+		assert.NoError(t, checkErr, "expected no error reading description.pdf")
 		assert.Equal(t, "New task description content", string(content), "description.pdf content should be overwritten")
 
 		inputFile := filepath.Join(ts.taskDirectory, "task1", "src", "input", "1.in")
@@ -110,7 +110,7 @@ func TestCreateTaskDirectory(t *testing.T) {
 	t.Run("should return an error when directory exists and overwrite is false", func(t *testing.T) {
 		// Attempt to create the directory again without overwrite
 		err := ts.CreateTaskDirectory(1, files, false)
-		assert.Error(t, err, "expected error when trying to create an existing task directory without overwrite")
+		assert.ErrorIs(t, err, ErrDirectoryAlreadyExists, "expected ErrDirectoryAlreadyExists error")
 	})
 
 	// Subtest for mismatched input/output files
@@ -123,8 +123,8 @@ func TestCreateTaskDirectory(t *testing.T) {
 		}
 
 		// Attempt to create the directory
-		err := ts.CreateTaskDirectory(1, mismatchedFiles, false)
-		assert.Error(t, err, "expected an error due to mismatched input/output files")
+		err := ts.CreateTaskDirectory(1, mismatchedFiles, true)
+		assert.ErrorIs(t, err, ErrFailedValidateFiles, "expected ErrFailedValidateFiles error due to mismatched input/output files")
 	})
 
 	// Subtest for files with invalid naming format
@@ -136,8 +136,7 @@ func TestCreateTaskDirectory(t *testing.T) {
 		}
 
 		err := ts.CreateTaskDirectory(2, invalidNamingFiles, false)
-		assert.Error(t, err, "expected an error due to invalid naming format")
-		assert.Contains(t, err.Error(), "does not match the required format", "error should indicate incorrect file naming")
+		assert.ErrorIs(t, err, ErrFailedValidateFiles, "expected ErrFailedValidateFiles due to invalid naming format")
 	})
 
 	// Subtest to check if an error is returned for non-pdf description files
@@ -150,8 +149,7 @@ func TestCreateTaskDirectory(t *testing.T) {
 
 		// Attempt to create the directory with invalid file formats
 		err := ts.CreateTaskDirectory(3, invalidFiles, false)
-		assert.Error(t, err, "expected an error when description is not a .pdf file")
-		assert.Contains(t, err.Error(), "description must have a .pdf extension", "error message should mention invalid file format")
+		assert.ErrorIs(t, err, ErrFailedValidateFiles, "expected ErrFailedValidateFiles when description is not a .pdf file")
 	})
 }
 
@@ -204,8 +202,8 @@ func TestCreateUserSubmission(t *testing.T) {
 		solutionFile := filepath.Join(submissionDir, "solution.c")
 		assert.FileExists(t, solutionFile, "solution.c file should exist")
 
-		content, err := os.ReadFile(solutionFile)
-		assert.NoError(t, err, "expected no error when reading solution.c file")
+		content, checkErr := os.ReadFile(solutionFile)
+		assert.NoError(t, checkErr, "expected no error when reading solution.c file")
 		assert.Equal(t, string(userFileContent), string(content), "solution.c content should match")
 	})
 
@@ -230,8 +228,8 @@ func TestCreateUserSubmission(t *testing.T) {
 		solutionFile := filepath.Join(submissionDir, "solution.c")
 		assert.FileExists(t, solutionFile, "solution.c file should exist")
 
-		content, err := os.ReadFile(solutionFile)
-		assert.NoError(t, err, "expected no error when reading solution.c file")
+		content, checkErr := os.ReadFile(solutionFile)
+		assert.NoError(t, checkErr, "expected no error when reading solution.c file")
 		assert.Equal(t, string(userFileContent), string(content), "solution.c content should match")
 	})
 
@@ -242,8 +240,7 @@ func TestCreateUserSubmission(t *testing.T) {
 
 		// Attempt to create a submission with an unsupported file extension
 		err := ts.CreateUserSubmission(1, 2, userFileContent, fileName)
-		assert.Error(t, err, "expected an error when creating submission with unsupported file extension")
-		assert.Contains(t, err.Error(), "file extension '.java' is not allowed", "error message should mention unsupported file extension")
+		assert.ErrorIs(t, err, ErrFileExtensionNotAllowed, "expected ErrFileExtensionNotAllowed error for unsupported file extension")
 	})
 
 	// Subtest for creating submissions for multiple users
@@ -271,8 +268,8 @@ func TestCreateUserSubmission(t *testing.T) {
 		solutionFile := filepath.Join(submissionDir, "solution.c")
 		assert.FileExists(t, solutionFile, "solution.c file should exist")
 
-		content, err := os.ReadFile(solutionFile)
-		assert.NoError(t, err, "expected no error when reading solution.c file")
+		content, checkErr := os.ReadFile(solutionFile)
+		assert.NoError(t, checkErr, "expected no error when reading solution.c file")
 		assert.Equal(t, string(userFileContent), string(content), "solution.c content should match")
 	})
 
@@ -283,8 +280,7 @@ func TestCreateUserSubmission(t *testing.T) {
 
 		// Simulate the task directory not being created (taskID 999)
 		err := ts.CreateUserSubmission(999, 1, userFileContent, fileName)
-		assert.Error(t, err, "expected an error when trying to submit to a non-existent task")
-		assert.Contains(t, err.Error(), "invalid taskID: task directory does not exist", "error message should indicate failure due to missing task directory")
+		assert.ErrorIs(t, err, ErrInvalidTaskID, "expected ErrInvalidTaskID error when trying to submit to a non-existent task")
 	})
 }
 
@@ -393,7 +389,7 @@ func TestStoreUserOutputs(t *testing.T) {
 
 		// Attempt to store invalid output files
 		err := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
-		assert.Error(t, err, "expected an error when trying to store wrong format of files")
+		assert.ErrorIs(t, err, ErrInvalidOutputFileFormat, "expected ErrInvalidOutputFileFormat when storing files with the wrong format")
 	})
 
 	// Subtest for error when number of output files doesn't match the number of output files of a task
@@ -415,8 +411,7 @@ func TestStoreUserOutputs(t *testing.T) {
 
 		// Attempt to store the output files and expect an error
 		err := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
-		assert.Error(t, err, "expected an error when number of user outputs does not match task's expected outputs")
-		assert.Contains(t, err.Error(), "number of output files does not match the expected number", "error message should indicate output count mismatch")
+		assert.ErrorIs(t, err, ErrOutputFileMismatch, "expected ErrOutputFileMismatch error when the number of outputs does not match task's expected outputs")
 	})
 }
 
@@ -463,13 +458,13 @@ func TestGetTaskFiles(t *testing.T) {
 		assert.FileExists(t, tarFilePath, "expected the tar file to be created")
 
 		// Open the created .tar.gz file and verify its contents
-		tarFile, err := os.Open(tarFilePath)
-		assert.NoError(t, err, "failed to open created .tar.gz file")
+		tarFile, checkErr := os.Open(tarFilePath)
+		assert.NoError(t, checkErr, "failed to open created .tar.gz file")
 		defer utils.CloseIO(tarFile)
 
 		// Initialize gzip and tar readers
-		gzipReader, err := gzip.NewReader(tarFile)
-		assert.NoError(t, err, "failed to create gzip reader")
+		gzipReader, checkErr := gzip.NewReader(tarFile)
+		assert.NoError(t, checkErr, "failed to create gzip reader")
 		defer utils.CloseIO(gzipReader)
 
 		tarReader := tar.NewReader(gzipReader)
@@ -480,8 +475,8 @@ func TestGetTaskFiles(t *testing.T) {
 		}
 
 		for {
-			header, err := tarReader.Next()
-			if err != nil {
+			header, checkErr := tarReader.Next()
+			if checkErr != nil {
 				break
 			}
 			if _, exists := filesFound[header.Name]; exists {
@@ -499,7 +494,7 @@ func TestGetTaskFiles(t *testing.T) {
 	t.Run("should return an error when src directory is missing", func(t *testing.T) {
 		taskID := 2
 		tarFilePath, err := ts.GetTaskFiles(taskID)
-		assert.Error(t, err, "expected an error when src directory is missing")
+		assert.ErrorIs(t, err, ErrTaskSrcDirDoesNotExist, "expected ErrTaskSrcDirDoesNotExist when src directory is missing")
 		assert.Empty(t, tarFilePath, "expected no tar file to be created when src directory is missing")
 	})
 }
@@ -554,8 +549,7 @@ func TestGetUserSubmission(t *testing.T) {
 
 		// Attempt to retrieve a submission from a non-existent directory
 		_, _, err := ts.GetUserSubmission(taskID, userID, submissionNum)
-		assert.Error(t, err, "expected an error when submission directory does not exist")
-		assert.Contains(t, err.Error(), "submission directory does not exist", "error message should indicate missing directory")
+		assert.ErrorIs(t, err, ErrSubmissionDirDoesNotExist, "expected ErrSubmissionDirDoesNotExist when submission directory does not exist")
 	})
 
 	// Subtest: Error when no program file exists in the submission directory
@@ -571,8 +565,7 @@ func TestGetUserSubmission(t *testing.T) {
 
 		// Attempt to retrieve a program file from the empty directory
 		_, _, err = ts.GetUserSubmission(taskID, userID, submissionNum)
-		assert.Error(t, err, "expected an error when no program file is found")
-		assert.Contains(t, err.Error(), "no program file found", "error message should indicate missing program file")
+		assert.ErrorIs(t, err, ErrNoProgramFileFound, "expected ErrNoProgramFileFound when no program file is found")
 	})
 
 	// Subtest: Error when multiple program files exist in the submission directory
@@ -590,8 +583,7 @@ func TestGetUserSubmission(t *testing.T) {
 
 		// Attempt to retrieve the program file
 		_, _, err = ts.GetUserSubmission(taskID, userID, submissionNum)
-		assert.Error(t, err, "expected an error when multiple program files are found")
-		assert.Contains(t, err.Error(), "multiple program files found", "error message should indicate multiple program files")
+		assert.ErrorIs(t, err, ErrMultipleProgramFilesFound, "expected ErrMultipleProgramFilesFound when multiple program files are found")
 	})
 }
 
@@ -677,8 +669,7 @@ func TestGetInputOutput(t *testing.T) {
 
 		// Try to retrieve input/output and expect an error
 		_, err = ts.GetInputOutput(taskID, inputOutputID)
-		assert.Error(t, err, "expected an error for missing input file")
-		assert.Regexp(t, `input file \d+\.in does not exist for task \d+`, err.Error(), "error should mention missing input file")
+		assert.ErrorIs(t, err, ErrInputFileDoesNotExist, "expected ErrInputFileDoesNotExist when input file is missing")
 	})
 
 	// Subtest for handling missing output file
@@ -696,8 +687,7 @@ func TestGetInputOutput(t *testing.T) {
 
 		// Try to retrieve input/output and expect an error
 		_, err = ts.GetInputOutput(taskID, inputOutputID)
-		assert.Error(t, err, "expected an error for missing output file")
-		assert.Regexp(t, `output file \d+\.out does not exist for task \d+`, err.Error(), "error should mention missing input file")
+		assert.ErrorIs(t, err, ErrOutputFileDoesNotExist, "expected ErrOutputFileDoesNotExist when output file is missing")
 	})
 }
 
@@ -746,13 +736,12 @@ func TestDeleteTask(t *testing.T) {
 	})
 
 	// Test for handling non-existent directory
-	t.Run("should return no error if the task directory does not exist", func(t *testing.T) {
+	t.Run("should return an error if the task directory does not exist", func(t *testing.T) {
 		taskID := 2
 
 		// Call DeleteTask on a non-existent directory
 		err := ts.DeleteTask(taskID)
-		assert.Error(t, err, "expected an error for missing the task files")
-		assert.Regexp(t, `no directory exists for task \d+`, err.Error(), "error should mention missing input file")
+		assert.ErrorIs(t, err, ErrInvalidTaskID, "expected ErrInvalidTaskID when the task directory does not exist")
 	})
 
 	// Test for handling directory deletion failure due to permissions
@@ -768,7 +757,7 @@ func TestDeleteTask(t *testing.T) {
 
 		// Attempt to delete and check for an error
 		err = ts.DeleteTask(taskID)
-		assert.Error(t, err, "expected an error deleting read-only directory")
+		assert.ErrorIs(t, err, ErrFailedDeleteTaskDirectory, "expected ErrFailedDeleteTaskDirectory when directory deletion fails due to permissions")
 
 		// Restore permissions to allow cleanup
 		_ = os.Chmod(taskDir, 0755)
@@ -871,16 +860,12 @@ func TestGetUserSolutionPackage(t *testing.T) {
 		outputDir := filepath.Join(taskDir, "src", "output")
 		solutionDir := filepath.Join(taskDir, "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
 		err := os.MkdirAll(outputDir, os.ModePerm)
-		if err != nil {
-			return
-		}
+		assert.NoError(t, err)
 		err = os.MkdirAll(solutionDir, os.ModePerm)
-		if err != nil {
-			return
-		}
+		assert.NoError(t, err)
 
 		_, err = ts.GetUserSolutionPackage(taskID, userID, submissionNum)
-		assert.Error(t, err, "expected an error for missing input directory")
+		assert.ErrorIs(t, err, ErrInputDirectoryDoesNotExist, "expected ErrInputDirectoryDoesNotExist for missing input directory")
 	})
 
 	// Subtest for missing output directory
@@ -894,16 +879,12 @@ func TestGetUserSolutionPackage(t *testing.T) {
 		inputDir := filepath.Join(taskDir, "src", "input")
 		solutionDir := filepath.Join(taskDir, "submissions", fmt.Sprintf("user%d", userID), fmt.Sprintf("submission%d", submissionNum))
 		err := os.MkdirAll(inputDir, os.ModePerm)
-		if err != nil {
-			return
-		}
+		assert.NoError(t, err)
 		err = os.MkdirAll(solutionDir, os.ModePerm)
-		if err != nil {
-			return
-		}
+		assert.NoError(t, err)
 
 		_, err = ts.GetUserSolutionPackage(taskID, userID, submissionNum)
-		assert.Error(t, err, "expected an error for missing output directory")
+		assert.ErrorIs(t, err, ErrOutputDirectoryDoesNotExist, "expected ErrOutputDirectoryDoesNotExist for missing output directory")
 	})
 
 	// Subtest for missing solution file
@@ -913,20 +894,16 @@ func TestGetUserSolutionPackage(t *testing.T) {
 		submissionNum := 1
 
 		// Set up files without the solution file
-		taskDir := filepath.Join(rootDir, fmt.Sprintf("task%d", taskID))
+		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
 		inputDir := filepath.Join(taskDir, "src", "input")
 		outputDir := filepath.Join(taskDir, "src", "output")
 		err := os.MkdirAll(inputDir, os.ModePerm)
-		if err != nil {
-			return
-		}
+		assert.NoError(t, err)
 		err = os.MkdirAll(outputDir, os.ModePerm)
-		if err != nil {
-			return
-		}
+		assert.NoError(t, err)
 
 		_, err = ts.GetUserSolutionPackage(taskID, userID, submissionNum)
-		assert.Error(t, err, "expected an error for missing solution file")
+		assert.ErrorIs(t, err, ErrSolutionFileDoesNotExist, "expected ErrSolutionFileDoesNotExist for missing solution file")
 	})
 }
 
