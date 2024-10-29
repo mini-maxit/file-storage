@@ -61,8 +61,10 @@ When an error occurs, the response is returned in JSON format with the following
 - taskID (required): Integer value representing the unique task identifier.
 - overwrite (optional): Boolean value indicating whether to overwrite an existing task directory.
 - description (required): File upload for the task description (e.g., description.pdf). 
-- inputFiles (required): Array of file uploads representing the input files.
-- outputFiles (required): Array of file uploads representing the output files.
+- archive (required): Archive file (.zip or .tar.gz) with the following folder structure after decompressing:
+    - Task - directory that should contain the description.pdf file
+      - input - directory with input files (that match pattern {number}.in)
+      - output - directory with output files (that match pattern {number}.out)
 
 #### Request example: 
 
@@ -119,8 +121,8 @@ When an error occurs, the response is returned in JSON format with the following
 - taskID (required): Integer ID of the task.
 - userID (required): Integer ID of the user.
 - submissionNumber (required): Integer indicating the submission version for which the output files are stored.
-- outputs (optional): Array of output file uploads. Only .txt files are allowed.
-- error (optional): File upload of a single error file named compile-error.err.
+- archive (required): Archive file (.zip or .tar.gz) with the following folder structure after decompressing:
+  - Outputs - directory with the output files (that match pattern {number}.out) or with an error file (compile-error.err)
 
 #### Constraints:
 
