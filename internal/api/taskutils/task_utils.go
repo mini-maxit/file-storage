@@ -151,8 +151,7 @@ func (tu *TaskUtils) ValidateFiles(files map[string][]byte) error {
 			}
 			inputFiles[num] = true
 
-			// Validate output files
-		} else if strings.HasPrefix(fileName, "src/output/") {
+		} else if strings.HasPrefix(fileName, "src/output/") { // Validate output files
 			matches := outputPattern.FindStringSubmatch(baseName)
 			if matches == nil {
 				return fmt.Errorf("output file %s does not match the required format {number}.out", baseName)
@@ -169,15 +168,13 @@ func (tu *TaskUtils) ValidateFiles(files map[string][]byte) error {
 			}
 			outputFiles[num] = true
 
-			// Validate description file
-		} else if baseName == "description.pdf" || strings.HasPrefix(baseName, "description.") {
+		} else if baseName == "description.pdf" || strings.HasPrefix(baseName, "description.") { // Validate description file
 			if filepath.Ext(fileName) != ".pdf" {
 				return errors.New("description must have a .pdf extension")
 			}
 			hasDescription = true
 
-			// Unrecognized file path
-		} else {
+		} else { // Unrecognized file path
 			return fmt.Errorf("unrecognized file path %s", fileName)
 		}
 	}
@@ -190,6 +187,13 @@ func (tu *TaskUtils) ValidateFiles(files map[string][]byte) error {
 	// Ensure a description file is provided
 	if !hasDescription {
 		return errors.New("a description file (description.pdf) is required")
+	}
+
+	// Check if the input and output file numbers match and are sequential from 1 to n
+	for i := 1; i <= len(inputFiles); i++ {
+		if !inputFiles[i] || !outputFiles[i] {
+			return fmt.Errorf("input and output files must have matching numbers from 1 to %d", len(inputFiles))
+		}
 	}
 
 	return nil

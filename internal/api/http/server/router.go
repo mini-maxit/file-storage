@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -61,61 +62,84 @@ func NewServer(ts *services.TaskService) *Server {
 			}
 		}
 
-		// Prepare the files map
-		filesMap := make(map[string][]byte)
-
-		// Process the description file
-		descriptionFile, _, err := r.FormFile("description")
+		// Process the uploaded archive
+		archiveFile, _, err := r.FormFile("archive")
 		if err != nil {
-			http.Error(w, "Description file is required.", http.StatusBadRequest)
+			http.Error(w, "Archive file is required.", http.StatusBadRequest)
 			return
 		}
-		defer utils.CloseIO(descriptionFile)
-		descriptionContent, err := io.ReadAll(descriptionFile)
+		defer utils.CloseIO(archiveFile)
+
+		// Save the archive temporarily
+		tempArchivePath := filepath.Join(os.TempDir(), fmt.Sprintf("task_archive_%d.zip", taskID))
+		tempArchive, err := os.Create(tempArchivePath)
 		if err != nil {
-			http.Error(w, "Failed to read description file.", http.StatusInternalServerError)
+			http.Error(w, "Failed to create temporary file for archive.", http.StatusInternalServerError)
+			return
+		}
+		defer utils.RemoveDirectory(tempArchivePath)
+		defer utils.CloseIO(tempArchive)
+
+		if _, err := io.Copy(tempArchive, archiveFile); err != nil {
+			http.Error(w, "Failed to save archive file.", http.StatusInternalServerError)
+			return
+		}
+
+		// Decompress the archive to a temporary directory
+		tempExtractPath := filepath.Join(os.TempDir(), fmt.Sprintf("task_%d", taskID))
+		defer utils.RemoveDirectory(tempExtractPath)
+
+		if err := utils.DecompressArchive(tempArchivePath, tempExtractPath); err != nil {
+			http.Error(w, "Failed to decompress archive.", http.StatusInternalServerError)
+			return
+		}
+
+		// Prepare files map from decompressed folder structure
+		filesMap := make(map[string][]byte)
+
+		// Load description file
+		descriptionPath := filepath.Join(tempExtractPath, "Task", "description.pdf")
+		descriptionContent, err := os.ReadFile(descriptionPath)
+		if err != nil {
+			http.Error(w, "Description file is missing or unreadable in the archive.", http.StatusBadRequest)
 			return
 		}
 		filesMap["src/description.pdf"] = descriptionContent
 
-		// Process input files
-		inputFiles := r.MultipartForm.File["inputFiles"]
-		for _, fileHeader := range inputFiles {
-			file, err := fileHeader.Open()
-			if err != nil {
-				http.Error(w, "Failed to open input file.", http.StatusInternalServerError)
-				return
-			}
-
-			content, err := io.ReadAll(file)
-			if err != nil {
-				http.Error(w, "Failed to read input file.", http.StatusInternalServerError)
-				return
-			}
-
-			utils.CloseIO(file)
-
-			filesMap["src/input/"+fileHeader.Filename] = content
+		// Load input files
+		inputDir := filepath.Join(tempExtractPath, "Task", "input")
+		inputFiles, err := os.ReadDir(inputDir)
+		if err != nil {
+			http.Error(w, "Input directory is missing in the archive.", http.StatusBadRequest)
+			return
 		}
 
-		// Process output files
-		outputFiles := r.MultipartForm.File["outputFiles"]
-		for _, fileHeader := range outputFiles {
-			file, err := fileHeader.Open()
+		for _, file := range inputFiles {
+			filePath := filepath.Join(inputDir, file.Name())
+			content, err := os.ReadFile(filePath)
 			if err != nil {
-				http.Error(w, "Failed to open output file.", http.StatusInternalServerError)
+				http.Error(w, "Failed to read input file in the archive.", http.StatusInternalServerError)
 				return
 			}
+			filesMap["src/input/"+file.Name()] = content
+		}
 
-			content, err := io.ReadAll(file)
+		// Load output files
+		outputDir := filepath.Join(tempExtractPath, "Task", "output")
+		outputFiles, err := os.ReadDir(outputDir)
+		if err != nil {
+			http.Error(w, "Output directory is missing in the archive.", http.StatusBadRequest)
+			return
+		}
+
+		for _, file := range outputFiles {
+			filePath := filepath.Join(outputDir, file.Name())
+			content, err := os.ReadFile(filePath)
 			if err != nil {
-				http.Error(w, "Failed to read output file.", http.StatusInternalServerError)
+				http.Error(w, "Failed to read output file in the archive.", http.StatusInternalServerError)
 				return
 			}
-
-			utils.CloseIO(file)
-
-			filesMap["src/output/"+fileHeader.Filename] = content
+			filesMap["src/output/"+file.Name()] = content
 		}
 
 		// Invoke the service function
@@ -216,7 +240,7 @@ func NewServer(ts *services.TaskService) *Server {
 			return
 		}
 
-		// Extract 'taskID' and 'userID' from form data
+		// Extract 'taskID', 'userID', and 'submissionNumber' from form data
 		taskIDStr := r.FormValue("taskID")
 		userIDStr := r.FormValue("userID")
 		submissionNumberStr := r.FormValue("submissionNumber")
@@ -245,93 +269,70 @@ func NewServer(ts *services.TaskService) *Server {
 
 		// Prepare maps for output files and error file
 		outputFiles := make(map[string][]byte)
-		errorFile := make(map[string][]byte)
 
-		// Process the output files
-		outputFilesUploaded := r.MultipartForm.File["outputs"]
-		for _, fileHeader := range outputFilesUploaded {
-			file, err := fileHeader.Open()
-			if err != nil {
-				http.Error(w, "Failed to open output file.", http.StatusInternalServerError)
-				return
-			}
-
-			content, err := io.ReadAll(file)
-			if err != nil {
-				http.Error(w, "Failed to read output file.", http.StatusInternalServerError)
-				return
-			}
-
-			utils.CloseIO(file)
-
-			outputFiles[fileHeader.Filename] = content
+		// Process the uploaded archive
+		archiveFile, _, err := r.FormFile("archive")
+		if err != nil {
+			http.Error(w, "Archive file is required.", http.StatusBadRequest)
+			return
 		}
+		defer utils.CloseIO(archiveFile)
 
-		// Process the error file
-		errorFilesUploaded := r.MultipartForm.File["error"]
-		for _, fileHeader := range errorFilesUploaded {
-			file, err := fileHeader.Open()
-			if err != nil {
-				http.Error(w, "Failed to open error file.", http.StatusInternalServerError)
-				return
-			}
-
-			content, err := io.ReadAll(file)
-			if err != nil {
-				http.Error(w, "Failed to read error file.", http.StatusInternalServerError)
-				return
-			}
-
-			utils.CloseIO(file)
-
-			errorFile[fileHeader.Filename] = content
+		// Save the archive temporarily
+		tempArchivePath := filepath.Join(os.TempDir(), fmt.Sprintf("outputs_archive_%d.zip", taskID))
+		tempArchive, err := os.Create(tempArchivePath)
+		if err != nil {
+			http.Error(w, "Failed to create temporary file for archive.", http.StatusInternalServerError)
+			return
 		}
+		defer utils.RemoveDirectory(tempArchivePath)
+		defer utils.CloseIO(tempArchive)
 
-		// Check the conditions:
-		if len(outputFiles) == 0 && len(errorFile) == 0 {
-			http.Error(w, "Either outputs or error file must be provided.", http.StatusBadRequest)
+		if _, err := io.Copy(tempArchive, archiveFile); err != nil {
+			http.Error(w, "Failed to save archive file.", http.StatusInternalServerError)
 			return
 		}
 
-		if len(outputFiles) > 0 && len(errorFile) > 0 {
-			http.Error(w, "Cannot have both outputs and error file at the same time.", http.StatusBadRequest)
+		// Decompress the archive to a temporary directory
+		tempExtractPath := filepath.Join(os.TempDir(), fmt.Sprintf("task_outputs_%d", taskID))
+		defer utils.RemoveDirectory(tempExtractPath)
+
+		if err := utils.DecompressArchive(tempArchivePath, tempExtractPath); err != nil {
+			http.Error(w, "Failed to decompress archive.", http.StatusInternalServerError)
 			return
 		}
 
-		// If output files are provided, store them
-		if len(outputFiles) > 0 {
-			serviceErr := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
-			if serviceErr != nil {
-				services.WriteServiceError(serviceErr, w, "Failed to store user outputs", map[string]interface{}{
-					"taskID":     taskID,
-					"userID":     userID,
-					"submission": submissionNumberStr,
-				})
-				return
-			}
-			_, err = w.Write([]byte("Output files stored successfully"))
-			if err != nil {
-				return
-			}
+		// Read files from the "Outputs" folder in the decompressed archive
+		outputsDir := filepath.Join(tempExtractPath, "Outputs")
+		outputFilesList, err := os.ReadDir(outputsDir)
+		if err != nil {
+			http.Error(w, "Outputs directory is missing in the archive.", http.StatusBadRequest)
 			return
 		}
 
-		// If an error file is provided, store it
-		if len(errorFile) > 0 {
-			serviceErr := ts.StoreUserOutputs(taskID, userID, submissionNumber, errorFile)
-			if serviceErr != nil {
-				services.WriteServiceError(serviceErr, w, "Failed to store user outputs", map[string]interface{}{
-					"taskID":     taskID,
-					"userID":     userID,
-					"errorFile":  errorFile,
-					"submission": submissionNumberStr,
-				})
-				return
-			}
-			_, err = w.Write([]byte("Error file stored successfully"))
+		for _, file := range outputFilesList {
+			filePath := filepath.Join(outputsDir, file.Name())
+			content, err := os.ReadFile(filePath)
 			if err != nil {
+				http.Error(w, "Failed to read file in Outputs directory.", http.StatusInternalServerError)
 				return
 			}
+			outputFiles[file.Name()] = content
+		}
+
+		// Store the output files in the service function
+		serviceErr := ts.StoreUserOutputs(taskID, userID, submissionNumber, outputFiles)
+		if serviceErr != nil {
+			services.WriteServiceError(serviceErr, w, "Failed to store user outputs", map[string]interface{}{
+				"taskID":     taskID,
+				"userID":     userID,
+				"submission": submissionNumberStr,
+			})
+			return
+		}
+
+		_, err = w.Write([]byte("Output files stored successfully"))
+		if err != nil {
 			return
 		}
 	})
