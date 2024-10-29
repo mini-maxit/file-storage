@@ -96,6 +96,7 @@ var (
 	ErrOutputDirectoryDoesNotExist = NewBadRequestError("output src directory does not exist")
 	ErrFailedSearchSolutionFile    = NewBadRequestError("failed searching solution file")
 	ErrSolutionFileDoesNotExist    = NewBadRequestError("solution file does not exist")
+	ErrDescriptionFileDoesNotExist = NewBadRequestError("description file does not exist")
 )
 
 // InternalServerErrors
@@ -130,4 +131,5 @@ var (
 	ErrFailedReadInputFiles          = NewInternalServerError("failed to read input/output files")
 	ErrFailedReadOutputFiles         = NewInternalServerError("failed to read output file")
 	ErrFailedToSaveCompileError      = NewInternalServerError("failed to save compile error")
+	ErrFailedReadDescriptionFile     = NewInternalServerError("failed to read description.pdf")
 )

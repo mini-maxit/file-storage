@@ -907,6 +907,70 @@ func TestGetUserSolutionPackage(t *testing.T) {
 	})
 }
 
+func TestGetTaskDescription(t *testing.T) {
+	// Create a temporary root directory for tests
+	rootDir, cleanup := createTempRootDir(t)
+	defer cleanup()
+
+	// Create a mock configuration with the temporary root directory
+	mockConfig := &config.Config{
+		RootDirectory: rootDir,
+	}
+
+	// Initialize the TaskService with the mock configuration
+	tu := taskutils.NewTaskUtils(mockConfig)
+	ts := NewTaskService(mockConfig, tu)
+
+	// Helper function to set up a task directory and add a description file
+	createTaskDescription := func(taskID int, fileContent string) error {
+		srcDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID), "src")
+		err := os.MkdirAll(srcDir, os.ModePerm)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(srcDir, "description.pdf"), []byte(fileContent), 0644)
+	}
+
+	// Subtest: Retrieve a valid description file
+	t.Run("should retrieve the description file for a valid task", func(t *testing.T) {
+		taskID := 1
+		descriptionContent := "This is the task description."
+
+		// Set up a valid task directory with a description file
+		err := createTaskDescription(taskID, descriptionContent)
+		assert.NoError(t, err, "expected no error in creating task description file")
+
+		// Retrieve the description
+		content, fileName, err := ts.GetTaskDescription(taskID)
+		assert.NoError(t, err, "expected no error when retrieving the description file")
+		assert.Equal(t, descriptionContent, string(content), "description content should match")
+		assert.Equal(t, "description.pdf", fileName, "filename should be 'description.pdf'")
+	})
+
+	// Subtest: Error when task directory does not exist
+	t.Run("should return an error if task directory does not exist", func(t *testing.T) {
+		taskID := 2
+
+		// Attempt to retrieve a description file from a non-existent task directory
+		_, _, err := ts.GetTaskDescription(taskID)
+		assert.ErrorIs(t, err, ErrDescriptionFileDoesNotExist, "expected ErrDescriptionFileDoesNotExist when task directory does not exist")
+	})
+
+	// Subtest: Error when description file does not exist in the task directory
+	t.Run("should return an error if description file is not found", func(t *testing.T) {
+		taskID := 3
+
+		// Create an empty task directory without a description file
+		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
+		err := os.MkdirAll(taskDir, os.ModePerm)
+		assert.NoError(t, err, "expected no error in creating empty task directory")
+
+		// Attempt to retrieve a description file from the empty directory
+		_, _, err = ts.GetTaskDescription(taskID)
+		assert.ErrorIs(t, err, ErrDescriptionFileDoesNotExist, "expected ErrDescriptionFileDoesNotExist when description file is missing")
+	})
+}
+
 // Helper function to validate the tar.gz contents
 func validateTarContents(t *testing.T, tarFilePath string, expectedFiles map[string]string) {
 	tarFile, err := os.Open(tarFilePath)
