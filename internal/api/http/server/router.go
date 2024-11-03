@@ -1,15 +1,17 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
-	"github.com/mini-maxit/file-storage/internal/api/services"
-	"github.com/mini-maxit/file-storage/utils"
-	"github.com/sirupsen/logrus"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/mini-maxit/file-storage/internal/api/services"
+	"github.com/mini-maxit/file-storage/utils"
+	"github.com/sirupsen/logrus"
 )
 
 type Server struct {
@@ -63,7 +65,7 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Process the uploaded archive
-		archiveFile, _, err := r.FormFile("archive")
+		archiveFile, fileHeader, err := r.FormFile("archive")
 		if err != nil {
 			http.Error(w, "Archive file is required.", http.StatusBadRequest)
 			return
@@ -71,7 +73,8 @@ func NewServer(ts *services.TaskService) *Server {
 		defer utils.CloseIO(archiveFile)
 
 		// Save the archive temporarily
-		tempArchivePath := filepath.Join(os.TempDir(), fmt.Sprintf("task_archive_%d.zip", taskID))
+		originalExt := filepath.Ext(fileHeader.Filename)
+		tempArchivePath := filepath.Join(os.TempDir(), fmt.Sprintf("task_archive_%d%s", taskID, originalExt))
 		tempArchive, err := os.Create(tempArchivePath)
 		if err != nil {
 			http.Error(w, "Failed to create temporary file for archive.", http.StatusInternalServerError)
@@ -209,7 +212,7 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Invoke the service function to handle the submission
-		serviceErr := ts.CreateUserSubmission(taskID, userID, fileContent, fileHeader.Filename)
+		submissionNumber, serviceErr := ts.CreateUserSubmission(taskID, userID, fileContent, fileHeader.Filename)
 		if serviceErr != nil {
 			services.WriteServiceError(serviceErr, w, "Failed to create User Submission", map[string]interface{}{
 				"taskID":   taskID,
@@ -219,9 +222,14 @@ func NewServer(ts *services.TaskService) *Server {
 			return
 		}
 
-		_, err = w.Write([]byte("Submission created successfully"))
-		if err != nil {
-			return
+		response := map[string]interface{}{
+			"message":          "Submission created successfully",
+			"submissionNumber": submissionNumber,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		}
 	})
 
@@ -271,7 +279,7 @@ func NewServer(ts *services.TaskService) *Server {
 		outputFiles := make(map[string][]byte)
 
 		// Process the uploaded archive
-		archiveFile, _, err := r.FormFile("archive")
+		archiveFile, fileHeader, err := r.FormFile("archive")
 		if err != nil {
 			http.Error(w, "Archive file is required.", http.StatusBadRequest)
 			return
@@ -279,7 +287,8 @@ func NewServer(ts *services.TaskService) *Server {
 		defer utils.CloseIO(archiveFile)
 
 		// Save the archive temporarily
-		tempArchivePath := filepath.Join(os.TempDir(), fmt.Sprintf("outputs_archive_%d.zip", taskID))
+		originalExt := filepath.Ext(fileHeader.Filename)
+		tempArchivePath := filepath.Join(os.TempDir(), fmt.Sprintf("outputs_archive_%d%s", taskID, originalExt))
 		tempArchive, err := os.Create(tempArchivePath)
 		if err != nil {
 			http.Error(w, "Failed to create temporary file for archive.", http.StatusInternalServerError)
@@ -302,8 +311,8 @@ func NewServer(ts *services.TaskService) *Server {
 			return
 		}
 
-		// Read files from the "Outputs" folder in the decompressed archive
-		outputsDir := filepath.Join(tempExtractPath, "Outputs")
+		// Read files from the "user-output" folder in the decompressed archive
+		outputsDir := filepath.Join(tempExtractPath, "user-output")
 		outputFilesList, err := os.ReadDir(outputsDir)
 		if err != nil {
 			http.Error(w, "Outputs directory is missing in the archive.", http.StatusBadRequest)
@@ -629,6 +638,47 @@ func NewServer(ts *services.TaskService) *Server {
 		_, err = w.Write([]byte(fmt.Sprintf("Task %d successfully deleted.", taskID)))
 		if err != nil {
 			http.Error(w, "Failed to send response.", http.StatusInternalServerError)
+			return
+		}
+	})
+
+	mux.HandleFunc("/getTaskDescription", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract 'taskID' from query parameters
+		taskIDStr := r.URL.Query().Get("taskID")
+		if taskIDStr == "" {
+			http.Error(w, "taskID is required.", http.StatusBadRequest)
+			return
+		}
+
+		// Convert taskID to integer
+		taskID, err := strconv.Atoi(taskIDStr)
+		if err != nil {
+			http.Error(w, "Invalid taskID.", http.StatusBadRequest)
+			return
+		}
+
+		// Retrieve the task description file content
+		fileContent, fileName, serviceErr := ts.GetTaskDescription(taskID)
+		if serviceErr != nil {
+			services.WriteServiceError(serviceErr, w, "Failed to get task description file", map[string]interface{}{
+				"taskID": taskID,
+			})
+			return
+		}
+
+		// Set response headers to prompt file download with the original file name
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileContent)))
+
+		// Write file content to the response
+		if _, err := w.Write(fileContent); err != nil {
+			http.Error(w, "Failed to write file content to response", http.StatusInternalServerError)
 			return
 		}
 	})

@@ -86,8 +86,10 @@ var (
 	ErrOutputFileDoesNotExist      = NewBadRequestError("output file does not exist")
 	ErrOutputFileMismatch          = NewBadRequestError("number of output files does not match the expected number")
 	ErrUnexpectedOutputFileNumber  = NewBadRequestError("unexpected output file number provided")
+	ErrInvalidStderrFileNumber	   = NewBadRequestError("invalid stderr file number provided")
 	ErrDuplicateOutputFileNumber   = NewBadRequestError("duplicate output file number found in user submission")
-	ErrInvalidOutputFileFormat     = NewBadRequestError("output file does not match the required format {number}.out")
+	ErrDuplicateStderrFileNumber   = NewBadRequestError("duplicate stderr file number found in user submission")
+	ErrInvalidOutputFileFormat     = NewBadRequestError("output file does not match the required format {number}.out or {number}.err")
 	ErrSubmissionDirDoesNotExist   = NewBadRequestError("submission directory does not exist")
 	ErrFailedReadOutputDirectory   = NewBadRequestError("failed reading output directory")
 	ErrInvalidOutputFileNumber     = NewBadRequestError("invalid output file number provided")
@@ -96,6 +98,7 @@ var (
 	ErrOutputDirectoryDoesNotExist = NewBadRequestError("output src directory does not exist")
 	ErrFailedSearchSolutionFile    = NewBadRequestError("failed searching solution file")
 	ErrSolutionFileDoesNotExist    = NewBadRequestError("solution file does not exist")
+	ErrDescriptionFileDoesNotExist = NewBadRequestError("description file does not exist")
 )
 
 // InternalServerErrors
@@ -108,6 +111,7 @@ var (
 	ErrFailedCreateDescription       = NewInternalServerError("failed to create description.pdf")
 	ErrFailedSaveUserFile            = NewInternalServerError("failed to save user file")
 	ErrFailedCreateSubmissionDir     = NewInternalServerError("failed to create submission or output directory")
+	ErrFailedSaveStderrFile		     = NewInternalServerError("failed to save stderr file")
 	ErrFailedGetSubmissionNumber     = NewInternalServerError("failed to get next submission number")
 	ErrFailedSaveOutputFile          = NewInternalServerError("failed to save output file")
 	ErrFailedGetInputOutputFile      = NewInternalServerError("failed to fetch input/output files")
@@ -130,4 +134,5 @@ var (
 	ErrFailedReadInputFiles          = NewInternalServerError("failed to read input/output files")
 	ErrFailedReadOutputFiles         = NewInternalServerError("failed to read output file")
 	ErrFailedToSaveCompileError      = NewInternalServerError("failed to save compile error")
+	ErrFailedReadDescriptionFile     = NewInternalServerError("failed to read description.pdf")
 )

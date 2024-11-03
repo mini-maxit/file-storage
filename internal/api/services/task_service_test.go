@@ -183,8 +183,9 @@ func TestCreateUserSubmission(t *testing.T) {
 		fileName := "solution.c"
 
 		// Create the first submission for user 1 and task 1
-		err := ts.CreateUserSubmission(1, 1, userFileContent, fileName)
+		submissionNumber, err := ts.CreateUserSubmission(1, 1, userFileContent, fileName)
 		assert.NoError(t, err, "expected no error when creating the first user submission")
+		assert.Equal(t, 1, submissionNumber, "expected submission number to be 1")
 
 		// Verify the directory structure
 		userDir := filepath.Join(ts.taskDirectory, "task1", "submissions", "user1")
@@ -213,8 +214,9 @@ func TestCreateUserSubmission(t *testing.T) {
 		fileName := "solution.c"
 
 		// Create a second submission for user 1 and task 1
-		err := ts.CreateUserSubmission(1, 1, userFileContent, fileName)
+		submissionNumber, err := ts.CreateUserSubmission(1, 1, userFileContent, fileName)
 		assert.NoError(t, err, "expected no error when creating the second user submission")
+		assert.Equal(t, 2, submissionNumber, "expected submission number to be 2")
 
 		// Verify submission directory exists
 		submissionDir := filepath.Join(ts.taskDirectory, "task1", "submissions", "user1", "submission2")
@@ -239,8 +241,9 @@ func TestCreateUserSubmission(t *testing.T) {
 		fileName := "solution.java" // Unsupported file extension
 
 		// Attempt to create a submission with an unsupported file extension
-		err := ts.CreateUserSubmission(1, 2, userFileContent, fileName)
+		submissionNumber, err := ts.CreateUserSubmission(1, 2, userFileContent, fileName)
 		assert.ErrorIs(t, err, ErrFileExtensionNotAllowed, "expected ErrFileExtensionNotAllowed error for unsupported file extension")
+		assert.Equal(t, 0, submissionNumber, "expected submission number to be 0 on error")
 	})
 
 	// Subtest for creating submissions for multiple users
@@ -249,8 +252,9 @@ func TestCreateUserSubmission(t *testing.T) {
 		fileName := "solution.c"
 
 		// Create a submission for user 2
-		err := ts.CreateUserSubmission(1, 2, userFileContent, fileName)
+		submissionNumber, err := ts.CreateUserSubmission(1, 2, userFileContent, fileName)
 		assert.NoError(t, err, "expected no error when creating submission for user 2")
+		assert.Equal(t, 1, submissionNumber, "expected submission number to be 1 for user 2")
 
 		// Verify the user directory exists
 		userDir := filepath.Join(ts.taskDirectory, "task1", "submissions", "user2")
@@ -279,8 +283,9 @@ func TestCreateUserSubmission(t *testing.T) {
 		fileName := "solution.c"
 
 		// Simulate the task directory not being created (taskID 999)
-		err := ts.CreateUserSubmission(999, 1, userFileContent, fileName)
+		submissionNumber, err := ts.CreateUserSubmission(999, 1, userFileContent, fileName)
 		assert.ErrorIs(t, err, ErrInvalidTaskID, "expected ErrInvalidTaskID error when trying to submit to a non-existent task")
+		assert.Equal(t, 0, submissionNumber, "expected submission number to be 0 on error")
 	})
 }
 
@@ -904,6 +909,70 @@ func TestGetUserSolutionPackage(t *testing.T) {
 
 		_, err = ts.GetUserSolutionPackage(taskID, userID, submissionNum)
 		assert.ErrorIs(t, err, ErrSolutionFileDoesNotExist, "expected ErrSolutionFileDoesNotExist for missing solution file")
+	})
+}
+
+func TestGetTaskDescription(t *testing.T) {
+	// Create a temporary root directory for tests
+	rootDir, cleanup := createTempRootDir(t)
+	defer cleanup()
+
+	// Create a mock configuration with the temporary root directory
+	mockConfig := &config.Config{
+		RootDirectory: rootDir,
+	}
+
+	// Initialize the TaskService with the mock configuration
+	tu := taskutils.NewTaskUtils(mockConfig)
+	ts := NewTaskService(mockConfig, tu)
+
+	// Helper function to set up a task directory and add a description file
+	createTaskDescription := func(taskID int, fileContent string) error {
+		srcDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID), "src")
+		err := os.MkdirAll(srcDir, os.ModePerm)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(srcDir, "description.pdf"), []byte(fileContent), 0644)
+	}
+
+	// Subtest: Retrieve a valid description file
+	t.Run("should retrieve the description file for a valid task", func(t *testing.T) {
+		taskID := 1
+		descriptionContent := "This is the task description."
+
+		// Set up a valid task directory with a description file
+		err := createTaskDescription(taskID, descriptionContent)
+		assert.NoError(t, err, "expected no error in creating task description file")
+
+		// Retrieve the description
+		content, fileName, err := ts.GetTaskDescription(taskID)
+		assert.NoError(t, err, "expected no error when retrieving the description file")
+		assert.Equal(t, descriptionContent, string(content), "description content should match")
+		assert.Equal(t, "description.pdf", fileName, "filename should be 'description.pdf'")
+	})
+
+	// Subtest: Error when task directory does not exist
+	t.Run("should return an error if task directory does not exist", func(t *testing.T) {
+		taskID := 2
+
+		// Attempt to retrieve a description file from a non-existent task directory
+		_, _, err := ts.GetTaskDescription(taskID)
+		assert.ErrorIs(t, err, ErrDescriptionFileDoesNotExist, "expected ErrDescriptionFileDoesNotExist when task directory does not exist")
+	})
+
+	// Subtest: Error when description file does not exist in the task directory
+	t.Run("should return an error if description file is not found", func(t *testing.T) {
+		taskID := 3
+
+		// Create an empty task directory without a description file
+		taskDir := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID))
+		err := os.MkdirAll(taskDir, os.ModePerm)
+		assert.NoError(t, err, "expected no error in creating empty task directory")
+
+		// Attempt to retrieve a description file from the empty directory
+		_, _, err = ts.GetTaskDescription(taskID)
+		assert.ErrorIs(t, err, ErrDescriptionFileDoesNotExist, "expected ErrDescriptionFileDoesNotExist when description file is missing")
 	})
 }
 
