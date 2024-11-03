@@ -634,5 +634,46 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 	})
 
+	mux.HandleFunc("/getTaskDescription", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract 'taskID' from query parameters
+		taskIDStr := r.URL.Query().Get("taskID")
+		if taskIDStr == "" {
+			http.Error(w, "taskID is required.", http.StatusBadRequest)
+			return
+		}
+
+		// Convert taskID to integer
+		taskID, err := strconv.Atoi(taskIDStr)
+		if err != nil {
+			http.Error(w, "Invalid taskID.", http.StatusBadRequest)
+			return
+		}
+
+		// Retrieve the task description file content
+		fileContent, fileName, serviceErr := ts.GetTaskDescription(taskID)
+		if serviceErr != nil {
+			services.WriteServiceError(serviceErr, w, "Failed to get task description file", map[string]interface{}{
+				"taskID": taskID,
+			})
+			return
+		}
+
+		// Set response headers to prompt file download with the original file name
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileContent)))
+
+		// Write file content to the response
+		if _, err := w.Write(fileContent); err != nil {
+			http.Error(w, "Failed to write file content to response", http.StatusInternalServerError)
+			return
+		}
+	})
+
 	return &Server{mux: mux}
 }

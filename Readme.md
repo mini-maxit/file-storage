@@ -268,4 +268,20 @@ Request example:
   - Status: 400 Bad Request if any required parameter is missing or invalid.
   - Status: 404 Not Found if the specified task, submission, or required files (input, output, solution) are missing.
   - Status: 500 Internal Server Error for other server-related issues.
-  
+
+### 9. Get Task Description
+- Endpoint: /getTaskDescription
+- Method: GET
+- Description: Fetches the description file for the given task.
+
+#### Query Params:
+- taskID (required): Integer ID of the task.
+
+#### Request example:
+
+```bash
+  curl --location 'http://localhost:8080/getTaskDescription?taskID=123'
+```
+#### Response:
+- Success: Returns a file containing task's description.
+- Failure: 400 or 500 error code with a specific error message.

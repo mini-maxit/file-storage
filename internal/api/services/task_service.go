@@ -635,3 +635,22 @@ func (ts *TaskService) GetUserSolutionPackage(taskID, userID, submissionNum int)
 	// Return the path to the created .tar.gz file
 	return tarFilePath, nil
 }
+
+// GetTaskDescription fetches the description file for a given task.
+func (ts *TaskService) GetTaskDescription(taskID int) ([]byte, string, ServiceError) {
+	// Define the path to the task description file
+	descriptionFilePath := filepath.Join(ts.taskDirectory, fmt.Sprintf("task%d", taskID), "src", "description.pdf")
+
+	// Check if the description file exists
+	if _, err := os.Stat(descriptionFilePath); os.IsNotExist(err) {
+		return nil, "", ErrDescriptionFileDoesNotExist
+	}
+
+	// Read the content of the description file
+	fileContent, err := os.ReadFile(descriptionFilePath)
+	if err != nil {
+		return nil, "", ErrFailedReadDescriptionFile
+	}
+
+	return fileContent, "description.pdf", nil
+}
