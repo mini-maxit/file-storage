@@ -60,7 +60,6 @@ When an error occurs, the response is returned in JSON format with the following
 
 - taskID (required): Integer value representing the unique task identifier.
 - overwrite (optional): Boolean value indicating whether to overwrite an existing task directory.
-- description (required): File upload for the task description (e.g., description.pdf). 
 - archive (required): Archive file (.zip or .tar.gz) with the following folder structure after decompressing:
     - Task - directory that should contain the description.pdf file
       - input - directory with input files (that match pattern {number}.in)
@@ -72,11 +71,7 @@ When an error occurs, the response is returned in JSON format with the following
   curl -X POST http://localhost:8080/createTask \
   -F "taskID=1" \
   -F "overwrite=false" \
-  -F "description=@/path/to/description.pdf" \
-  -F "inputFiles=@/path/to/input1.txt" \
-  -F "inputFiles=@/path/to/input2.txt" \
-  -F "outputFiles=@/path/to/output1.txt" \
-  -F "outputFiles=@/path/to/output2.txt"
+  -F "archive=@/path/to/archive.zip"
 ```
 
 #### Response:
