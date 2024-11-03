@@ -60,7 +60,6 @@ When an error occurs, the response is returned in JSON format with the following
 
 - taskID (required): Integer value representing the unique task identifier.
 - overwrite (optional): Boolean value indicating whether to overwrite an existing task directory.
-- description (required): File upload for the task description (e.g., description.pdf). 
 - archive (required): Archive file (.zip or .tar.gz) with the following folder structure after decompressing:
     - Task - directory that should contain the description.pdf file
       - input - directory with input files (that match pattern {number}.in)
@@ -72,11 +71,7 @@ When an error occurs, the response is returned in JSON format with the following
   curl -X POST http://localhost:8080/createTask \
   -F "taskID=1" \
   -F "overwrite=false" \
-  -F "description=@/path/to/description.pdf" \
-  -F "inputFiles=@/path/to/input1.txt" \
-  -F "inputFiles=@/path/to/input2.txt" \
-  -F "outputFiles=@/path/to/output1.txt" \
-  -F "outputFiles=@/path/to/output2.txt"
+  -F "archive=@/path/to/archive.zip"
 ```
 
 #### Response:
@@ -107,7 +102,13 @@ When an error occurs, the response is returned in JSON format with the following
 
 #### Response:
 
-- Success: 200 OK with the message "Submission created successfully"
+- Success: 200 OK with JSON response containing "message" and "submissionNumber". Example:
+    ```json
+    {
+    "message": "Submission created successfully",
+    "submissionNumber": 5
+    }
+    ```
 - Failure: 400 or 500 error code with a specific error message.
 
 ### 3. Store Outputs
@@ -136,8 +137,7 @@ When an error occurs, the response is returned in JSON format with the following
   -F "taskID=1" \
   -F "userID=1" \
   -F "submissionNumber=1" \
-  -F "outputs=@/path/to/output1.txt" \
-  -F "outputs=@/path/to/output2.txt"
+  -F "archive=@/path/to/archive.zip"
 ```
 
 #### Request example (with an error file):
@@ -268,4 +268,20 @@ Request example:
   - Status: 400 Bad Request if any required parameter is missing or invalid.
   - Status: 404 Not Found if the specified task, submission, or required files (input, output, solution) are missing.
   - Status: 500 Internal Server Error for other server-related issues.
-  
+
+### 9. Get Task Description
+- Endpoint: /getTaskDescription
+- Method: GET
+- Description: Fetches the description file for the given task.
+
+#### Query Params:
+- taskID (required): Integer ID of the task.
+
+#### Request example:
+
+```bash
+  curl --location 'http://localhost:8080/getTaskDescription?taskID=123'
+```
+#### Response:
+- Success: Returns a file containing task's description.
+- Failure: 400 or 500 error code with a specific error message.
