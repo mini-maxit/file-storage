@@ -183,8 +183,9 @@ func TestCreateUserSubmission(t *testing.T) {
 		fileName := "solution.c"
 
 		// Create the first submission for user 1 and task 1
-		err := ts.CreateUserSubmission(1, 1, userFileContent, fileName)
+		submissionNumber, err := ts.CreateUserSubmission(1, 1, userFileContent, fileName)
 		assert.NoError(t, err, "expected no error when creating the first user submission")
+		assert.Equal(t, 1, submissionNumber, "expected submission number to be 1")
 
 		// Verify the directory structure
 		userDir := filepath.Join(ts.taskDirectory, "task1", "submissions", "user1")
@@ -213,8 +214,9 @@ func TestCreateUserSubmission(t *testing.T) {
 		fileName := "solution.c"
 
 		// Create a second submission for user 1 and task 1
-		err := ts.CreateUserSubmission(1, 1, userFileContent, fileName)
+		submissionNumber, err := ts.CreateUserSubmission(1, 1, userFileContent, fileName)
 		assert.NoError(t, err, "expected no error when creating the second user submission")
+		assert.Equal(t, 2, submissionNumber, "expected submission number to be 2")
 
 		// Verify submission directory exists
 		submissionDir := filepath.Join(ts.taskDirectory, "task1", "submissions", "user1", "submission2")
@@ -239,8 +241,9 @@ func TestCreateUserSubmission(t *testing.T) {
 		fileName := "solution.java" // Unsupported file extension
 
 		// Attempt to create a submission with an unsupported file extension
-		err := ts.CreateUserSubmission(1, 2, userFileContent, fileName)
+		submissionNumber, err := ts.CreateUserSubmission(1, 2, userFileContent, fileName)
 		assert.ErrorIs(t, err, ErrFileExtensionNotAllowed, "expected ErrFileExtensionNotAllowed error for unsupported file extension")
+		assert.Equal(t, 0, submissionNumber, "expected submission number to be 0 on error")
 	})
 
 	// Subtest for creating submissions for multiple users
@@ -249,8 +252,9 @@ func TestCreateUserSubmission(t *testing.T) {
 		fileName := "solution.c"
 
 		// Create a submission for user 2
-		err := ts.CreateUserSubmission(1, 2, userFileContent, fileName)
+		submissionNumber, err := ts.CreateUserSubmission(1, 2, userFileContent, fileName)
 		assert.NoError(t, err, "expected no error when creating submission for user 2")
+		assert.Equal(t, 1, submissionNumber, "expected submission number to be 1 for user 2")
 
 		// Verify the user directory exists
 		userDir := filepath.Join(ts.taskDirectory, "task1", "submissions", "user2")
@@ -279,8 +283,9 @@ func TestCreateUserSubmission(t *testing.T) {
 		fileName := "solution.c"
 
 		// Simulate the task directory not being created (taskID 999)
-		err := ts.CreateUserSubmission(999, 1, userFileContent, fileName)
+		submissionNumber, err := ts.CreateUserSubmission(999, 1, userFileContent, fileName)
 		assert.ErrorIs(t, err, ErrInvalidTaskID, "expected ErrInvalidTaskID error when trying to submit to a non-existent task")
+		assert.Equal(t, 0, submissionNumber, "expected submission number to be 0 on error")
 	})
 }
 

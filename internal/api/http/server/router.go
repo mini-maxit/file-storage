@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -210,7 +211,7 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Invoke the service function to handle the submission
-		serviceErr := ts.CreateUserSubmission(taskID, userID, fileContent, fileHeader.Filename)
+		submissionNumber, serviceErr := ts.CreateUserSubmission(taskID, userID, fileContent, fileHeader.Filename)
 		if serviceErr != nil {
 			services.WriteServiceError(serviceErr, w, "Failed to create User Submission", map[string]interface{}{
 				"taskID":   taskID,
@@ -220,9 +221,14 @@ func NewServer(ts *services.TaskService) *Server {
 			return
 		}
 
-		_, err = w.Write([]byte("Submission created successfully"))
-		if err != nil {
-			return
+		response := map[string]interface{}{
+			"message":          "Submission created successfully",
+			"submissionNumber": submissionNumber,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		}
 	})
 

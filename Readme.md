@@ -107,7 +107,13 @@ When an error occurs, the response is returned in JSON format with the following
 
 #### Response:
 
-- Success: 200 OK with the message "Submission created successfully"
+- Success: 200 OK with JSON response containing "message" and "submissionNumber". Example:
+    ```json
+    {
+    "message": "Submission created successfully",
+    "submissionNumber": 5
+    }
+    ```
 - Failure: 400 or 500 error code with a specific error message.
 
 ### 3. Store Outputs
