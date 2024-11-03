@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,7 +65,7 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Process the uploaded archive
-		archiveFile, _, err := r.FormFile("archive")
+		archiveFile, fileHeader, err := r.FormFile("archive")
 		if err != nil {
 			http.Error(w, "Archive file is required.", http.StatusBadRequest)
 			return
@@ -72,7 +73,8 @@ func NewServer(ts *services.TaskService) *Server {
 		defer utils.CloseIO(archiveFile)
 
 		// Save the archive temporarily
-		tempArchivePath := filepath.Join(os.TempDir(), fmt.Sprintf("task_archive_%d.zip", taskID))
+		originalExt := filepath.Ext(fileHeader.Filename)
+		tempArchivePath := filepath.Join(os.TempDir(), fmt.Sprintf("task_archive_%d%s", taskID, originalExt))
 		tempArchive, err := os.Create(tempArchivePath)
 		if err != nil {
 			http.Error(w, "Failed to create temporary file for archive.", http.StatusInternalServerError)
@@ -210,7 +212,7 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Invoke the service function to handle the submission
-		serviceErr := ts.CreateUserSubmission(taskID, userID, fileContent, fileHeader.Filename)
+		submissionNumber, serviceErr := ts.CreateUserSubmission(taskID, userID, fileContent, fileHeader.Filename)
 		if serviceErr != nil {
 			services.WriteServiceError(serviceErr, w, "Failed to create User Submission", map[string]interface{}{
 				"taskID":   taskID,
@@ -220,9 +222,14 @@ func NewServer(ts *services.TaskService) *Server {
 			return
 		}
 
-		_, err = w.Write([]byte("Submission created successfully"))
-		if err != nil {
-			return
+		response := map[string]interface{}{
+			"message":          "Submission created successfully",
+			"submissionNumber": submissionNumber,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		}
 	})
 
@@ -272,7 +279,7 @@ func NewServer(ts *services.TaskService) *Server {
 		outputFiles := make(map[string][]byte)
 
 		// Process the uploaded archive
-		archiveFile, _, err := r.FormFile("archive")
+		archiveFile, fileHeader, err := r.FormFile("archive")
 		if err != nil {
 			http.Error(w, "Archive file is required.", http.StatusBadRequest)
 			return
@@ -280,7 +287,8 @@ func NewServer(ts *services.TaskService) *Server {
 		defer utils.CloseIO(archiveFile)
 
 		// Save the archive temporarily
-		tempArchivePath := filepath.Join(os.TempDir(), fmt.Sprintf("outputs_archive_%d.zip", taskID))
+		originalExt := filepath.Ext(fileHeader.Filename)
+		tempArchivePath := filepath.Join(os.TempDir(), fmt.Sprintf("outputs_archive_%d%s", taskID, originalExt))
 		tempArchive, err := os.Create(tempArchivePath)
 		if err != nil {
 			http.Error(w, "Failed to create temporary file for archive.", http.StatusInternalServerError)
