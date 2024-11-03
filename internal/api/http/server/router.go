@@ -2,14 +2,15 @@ package server
 
 import (
 	"fmt"
-	"github.com/mini-maxit/file-storage/internal/api/services"
-	"github.com/mini-maxit/file-storage/utils"
-	"github.com/sirupsen/logrus"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/mini-maxit/file-storage/internal/api/services"
+	"github.com/mini-maxit/file-storage/utils"
+	"github.com/sirupsen/logrus"
 )
 
 type Server struct {
