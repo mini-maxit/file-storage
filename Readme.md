@@ -137,8 +137,7 @@ When an error occurs, the response is returned in JSON format with the following
   -F "taskID=1" \
   -F "userID=1" \
   -F "submissionNumber=1" \
-  -F "outputs=@/path/to/output1.txt" \
-  -F "outputs=@/path/to/output2.txt"
+  -F "archive=@/path/to/archive.zip"
 ```
 
 #### Request example (with an error file):
