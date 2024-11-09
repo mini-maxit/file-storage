@@ -311,8 +311,8 @@ func NewServer(ts *services.TaskService) *Server {
 			return
 		}
 
-		// Read files from the "Outputs" folder in the decompressed archive
-		outputsDir := filepath.Join(tempExtractPath, "Outputs")
+		// Read files from the "user-output" folder in the decompressed archive
+		outputsDir := filepath.Join(tempExtractPath, "user-output")
 		outputFilesList, err := os.ReadDir(outputsDir)
 		if err != nil {
 			http.Error(w, "Outputs directory is missing in the archive.", http.StatusBadRequest)

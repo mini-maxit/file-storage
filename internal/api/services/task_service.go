@@ -4,14 +4,15 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"fmt"
-	"github.com/mini-maxit/file-storage/internal/api/taskutils"
-	"github.com/mini-maxit/file-storage/utils"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/mini-maxit/file-storage/internal/api/taskutils"
+	"github.com/mini-maxit/file-storage/utils"
 
 	"github.com/mini-maxit/file-storage/internal/config"
 )
@@ -240,7 +241,7 @@ func (ts *TaskService) StoreUserOutputs(taskID int, userID int, submissionNumber
 	// If there's only one file named "compile-error.err", save it and return
 	if len(outputFiles) == 1 {
 		for fileName := range outputFiles {
-			if fileName == "compile-error.err" {
+			if fileName == "compile-err.err" {
 				err = ts.tu.SaveCompileErrorFile(outputDir, outputFiles[fileName])
 				if err != nil {
 					return ErrFailedToSaveCompileError
@@ -250,11 +251,19 @@ func (ts *TaskService) StoreUserOutputs(taskID int, userID int, submissionNumber
 		}
 	}
 
+	// Count the number of output files provided by the user
+	outputFilesCount := 0
+	re := regexp.MustCompile(`^(\d+)\.out$`)
+	for fileName := range outputFiles {
+		if matches := re.FindStringSubmatch(fileName); matches != nil {
+			outputFilesCount++
+		}
+	}
+
 	// Map expected output numbers from the task's output directory
 	expectedOutputCount := 0
 	expectedNumbers := make(map[int]bool)
 
-	re := regexp.MustCompile(`^(\d+)\.out$`)
 	for _, file := range expectedFiles {
 		if matches := re.FindStringSubmatch(file.Name()); matches != nil {
 			num, _ := strconv.Atoi(matches[1])
@@ -264,42 +273,64 @@ func (ts *TaskService) StoreUserOutputs(taskID int, userID int, submissionNumber
 	}
 
 	// Verify the count of provided output files matches the expected count
-	if len(outputFiles) != expectedOutputCount {
+	if outputFilesCount != expectedOutputCount {
 		return ErrOutputFileMismatch
 	}
 
 	// Track user-provided output numbers to avoid duplicates
 	userOutputNumbers := make(map[int]bool)
+	stderrNumbers := make(map[int]bool)
 
-	// Save output files in the original name with the {number}.out format
+	// Save output files in the original name with the {number}.out or {number}.err format
 	for fileName, fileContent := range outputFiles {
 		baseName := filepath.Base(fileName)
-		matches := regexp.MustCompile(`^(\d+)\.out$`).FindStringSubmatch(baseName)
-		if matches == nil {
+		outputMatches := regexp.MustCompile(`^(\d+)\.out$`).FindStringSubmatch(baseName)
+		stderrMatches := regexp.MustCompile(`^(\d+)\.err$`).FindStringSubmatch(baseName)
+
+		if outputMatches != nil {
+			// Handle output files
+			num, err := strconv.Atoi(outputMatches[1])
+			if err != nil {
+				return ErrInvalidOutputFileNumber
+			}
+
+			// Ensure there are no duplicate numbers among the user files
+			if userOutputNumbers[num] {
+				return ErrDuplicateOutputFileNumber
+			}
+			userOutputNumbers[num] = true
+
+			// Ensure the output file number matches expected output files
+			if !expectedNumbers[num] {
+				return ErrUnexpectedOutputFileNumber
+			}
+
+			// Save the output file in the output directory
+			if err := os.WriteFile(filepath.Join(outputDir, baseName), fileContent, 0644); err != nil {
+				return ErrFailedSaveOutputFile
+			}
+		} else if stderrMatches != nil {
+			// Handle stderr files
+			num, err := strconv.Atoi(stderrMatches[1])
+			if err != nil {
+				return ErrInvalidStderrFileNumber
+			}
+
+			// Ensure there are no duplicate numbers among the stderr files
+			if stderrNumbers[num] {
+				return ErrDuplicateStderrFileNumber
+			}
+
+			// Save the stderr file in the output directory
+			if err := os.WriteFile(filepath.Join(outputDir, baseName), fileContent, 0644); err != nil {
+				return ErrFailedSaveStderrFile
+			}
+		} else {
+			// Return error if file format is neither .out nor .err
 			return ErrInvalidOutputFileFormat
 		}
-
-		num, err := strconv.Atoi(matches[1])
-		if err != nil {
-			return ErrInvalidOutputFileNumber
-		}
-
-		// Ensure there are no duplicate numbers among the user files
-		if userOutputNumbers[num] {
-			return ErrDuplicateOutputFileNumber
-		}
-		userOutputNumbers[num] = true
-
-		// Ensure the output file number matches expected output files
-		if !expectedNumbers[num] {
-			return ErrUnexpectedOutputFileNumber
-		}
-
-		// Save the output file in the output directory
-		if err := os.WriteFile(filepath.Join(outputDir, baseName), fileContent, 0644); err != nil {
-			return ErrFailedSaveOutputFile
-		}
 	}
+
 
 	return nil
 }
