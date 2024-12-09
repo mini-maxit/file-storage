@@ -2,9 +2,22 @@
 
 This is a file storage server for the MAXIT project.
 
+## Build
+
+Prerequisites:
+
+- Docker
+
+To build docker image for local usage run the following command:
+
+```bash
+docker build -t maxit/file-storage .
+```
+
 ## Usage
 
 ### Prerequisites:
+
 - **Go**: Ensure you have Go installed on your machine (version 1.23.2).
 
 To set up and run the File Storage API, follow these steps:
@@ -13,26 +26,27 @@ To set up and run the File Storage API, follow these steps:
    ```bash
     git clone https://github.com/mini-maxit/file-storage.git
     cd file-storage
-    ```
+   ```
 2. **Install Go Packages**: Ensure all necessary Go packages are installed by running:
    ```bash
     go mod tidy
-    ```
+   ```
 3. **Environment Configuration**: Copy the .env.dist file to .env:
    ```bash
     cp .env.dist .env
-    ```
+   ```
    Update the `.env` file with the necessary environment variables.
 4. **Run the Application**: To run the application, you can use the prepared `Makefile`.
    jut run:
-    ```bash
-    make
-    ```
+   ```bash
+   make
+   ```
+
 ## Endpoints
 
 ### Error Structure
 
-When an error occurs, the response is returned in JSON format with the following structure: 
+When an error occurs, the response is returned in JSON format with the following structure:
 
 ```json
 {
@@ -52,6 +66,7 @@ When an error occurs, the response is returned in JSON format with the following
 - context: An optional field containing additional context information about the error. This might include values like taskID, userID, submissionNumber, or other key-value pairs that provide insight into the specific conditions under which the error occurred. This field is included when relevant context is available.
 
 ### 1. Create Task
+
 - Endpoint: /createTask
 - Method: POST
 - Description: Creates a new task directory with a specified structure, including input and output files.
@@ -61,11 +76,11 @@ When an error occurs, the response is returned in JSON format with the following
 - taskID (required): Integer value representing the unique task identifier.
 - overwrite (optional): Boolean value indicating whether to overwrite an existing task directory.
 - archive (required): Archive file (.zip or .tar.gz) with the following folder structure after decompressing:
-    - Task - directory that should contain the description.pdf file
-      - input - directory with input files (that match pattern {number}.in)
-      - output - directory with output files (that match pattern {number}.out)
+  - Task - directory that should contain the description.pdf file
+    - input - directory with input files (that match pattern {number}.in)
+    - output - directory with output files (that match pattern {number}.out)
 
-#### Request example: 
+#### Request example:
 
 ```bash
   curl -X POST http://localhost:8080/createTask \
@@ -91,7 +106,7 @@ When an error occurs, the response is returned in JSON format with the following
 - userID (required): Integer ID of the user submitting the file.
 - submissionFile (required): The file the user wants to submit (e.g., solution.c or similar).
 
-#### Request example: 
+#### Request example:
 
 ```bash
   curl -X POST http://localhost:8080/submit \
@@ -103,12 +118,12 @@ When an error occurs, the response is returned in JSON format with the following
 #### Response:
 
 - Success: 200 OK with JSON response containing "message" and "submissionNumber". Example:
-    ```json
-    {
+  ```json
+  {
     "message": "Submission created successfully",
     "submissionNumber": 5
-    }
-    ```
+  }
+  ```
 - Failure: 400 or 500 error code with a specific error message.
 
 ### 3. Store Outputs
@@ -129,7 +144,8 @@ When an error occurs, the response is returned in JSON format with the following
 
 - Either outputs with stderr or compilation error must be provided, but not both.
 - The number of output files in outputs must match the expected number specified in the taskID/src/output folder.
-- The number of stderr might differ from the number of output files. 
+- The number of stderr might differ from the number of output files.
+
 #### Request example (with output files):
 
 ```bash
@@ -153,16 +169,18 @@ When an error occurs, the response is returned in JSON format with the following
 #### Response:
 
 - Success:
-    - 200 OK with "Output files stored successfully" if outputs were provided.
-    - 200 OK with "Error file stored successfully" if error was provided.
+  - 200 OK with "Output files stored successfully" if outputs were provided.
+  - 200 OK with "Error file stored successfully" if error was provided.
 - Failure: 400 or 500 error code with a specific error message.
 
 ### 4. Get Task Files
+
 - Endpoint: /getTaskFiles
 - Method: GET
 - Description: Retrieves all files (description, input, and output) for a given task.
 
 #### Query Params:
+
 - taskID (required): Integer ID of the task.
 
 Request example:
@@ -172,18 +190,21 @@ Request example:
 ```
 
 #### Response:
+
 - Success: Returns a .tar.gz file containing the task's src folder, named as task{taskID}Files.tar.gz. The archive includes:
   - description.pdf file if present
   - input/ folder with all input .txt files
-  - output/ folder with all output .txt files 
+  - output/ folder with all output .txt files
 - Failure: 400 or 500 error code with a specific error message.
 
 ### 5. Get User Submission
+
 - Endpoint: /getUserSubmission
 - Method: GET
 - Description: Fetches the specific submission file for a user.
 
 #### Query Params:
+
 - taskID (required): Integer ID of the task.
 - userID (required): Integer ID of the user.
 - submissionNumber (required): Integer indicating the submission version for which the output files are stored.
@@ -195,15 +216,18 @@ Request example:
 ```
 
 #### Response:
+
 - Success: Returns a file containing user's solution for the requested submission
 - Failure: 400 or 500 error code with a specific error message.
 
 ### 6. Get Input/Output Files
+
     Endpoint: /getInputOutput
     Method: GET
     Description: Retrieves specific input and output files for a given task.
 
 #### Query Params:
+
 - taskID (required): Integer ID of the task.
 - inputOutputID (required): Integer ID of the input/output of the task.
 
@@ -214,6 +238,7 @@ Request example:
 ```
 
 #### Response:
+
 - Success: Returns a .tar.gz file containing the task's src folder, named as Task{taskID}InputOutput{inputOutputID}Files.tar.gz. The archive includes:
   - input and output files
 - Failure: 400 or 500 error code with a specific error message.
@@ -225,6 +250,7 @@ Request example:
 - Description: Deletes the entire directory and all files associated with a specific task.
 
 #### Query Params:
+
 - taskID (required): Integer ID of the task to be deleted.
 
 #### Request example:
@@ -234,6 +260,7 @@ Request example:
 ```
 
 #### Response:
+
 - Success: 200 OK with the message "Task {taskID} successfully deleted."
 - Failure:
   - 400 Bad Request if taskID is missing or invalid.
@@ -247,6 +274,7 @@ Request example:
 - Description: Retrieves a structured package containing input, output, and solution files for a specific user’s submission in a task. The package is returned as a `.tar.gz` archive.
 
 #### Query Params:
+
 - taskID (required): Integer ID of the task.
 - userID (required): Integer ID of the user.
 - submissionNumber (required): Integer indicating the submission version for which the solution package is requested.
@@ -258,9 +286,10 @@ Request example:
 ```
 
 #### Response:
+
 - Success:
   - Status: 200 OK
-  - Returns a .tar.gz file named Task{taskID}_User{userID}_Submission{submissionNumber}_Package.tar.gz containing:
+  - Returns a .tar.gz file named Task{taskID}\_User{userID}\_Submission{submissionNumber}\_Package.tar.gz containing:
     - inputs/ folder with all input .in files
     - outputs/ folder with all output .out files
     - solution file with any original extension
@@ -270,11 +299,13 @@ Request example:
   - Status: 500 Internal Server Error for other server-related issues.
 
 ### 9. Get Task Description
+
 - Endpoint: /getTaskDescription
 - Method: GET
 - Description: Fetches the description file for the given task.
 
 #### Query Params:
+
 - taskID (required): Integer ID of the task.
 
 #### Request example:
@@ -282,6 +313,8 @@ Request example:
 ```bash
   curl --location 'http://localhost:8080/getTaskDescription?taskID=123'
 ```
+
 #### Response:
+
 - Success: Returns a file containing task's description.
 - Failure: 400 or 500 error code with a specific error message.
