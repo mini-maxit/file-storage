@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -96,12 +97,21 @@ func NewServer(ts *services.TaskService) *Server {
 			http.Error(w, "Failed to decompress archive.", http.StatusInternalServerError)
 			return
 		}
+		entries, err := os.ReadDir(tempExtractPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if len(entries) != 1 {
+			http.Error(w, "Task archive has to contain exactly 1 main folder", http.StatusBadRequest)
+		}
+
+		extractedPath := filepath.Join(tempExtractPath, entries[0].Name())
 
 		// Prepare files map from decompressed folder structure
 		filesMap := make(map[string][]byte)
 
 		// Load description file
-		descriptionPath := filepath.Join(tempExtractPath, "Task", "description.pdf")
+		descriptionPath := filepath.Join(extractedPath, "description.pdf")
 		descriptionContent, err := os.ReadFile(descriptionPath)
 		if err != nil {
 			http.Error(w, "Description file is missing or unreadable in the archive.", http.StatusBadRequest)
@@ -110,7 +120,7 @@ func NewServer(ts *services.TaskService) *Server {
 		filesMap["src/description.pdf"] = descriptionContent
 
 		// Load input files
-		inputDir := filepath.Join(tempExtractPath, "Task", "input")
+		inputDir := filepath.Join(extractedPath, "input")
 		inputFiles, err := os.ReadDir(inputDir)
 		if err != nil {
 			http.Error(w, "Input directory is missing in the archive.", http.StatusBadRequest)
@@ -128,7 +138,7 @@ func NewServer(ts *services.TaskService) *Server {
 		}
 
 		// Load output files
-		outputDir := filepath.Join(tempExtractPath, "Task", "output")
+		outputDir := filepath.Join(extractedPath, "output")
 		outputFiles, err := os.ReadDir(outputDir)
 		if err != nil {
 			http.Error(w, "Output directory is missing in the archive.", http.StatusBadRequest)

@@ -95,7 +95,7 @@ func (ts *TaskService) CreateTaskDirectory(taskID int, files map[string][]byte, 
 				return ErrFailedRestoreDirectory
 			}
 		}
-		return ErrFailedValidateFiles
+		return &InternalServerError{err.Error()}
 	}
 
 	// Create the description.pdf file
@@ -330,7 +330,6 @@ func (ts *TaskService) StoreUserOutputs(taskID int, userID int, submissionNumber
 			return ErrInvalidOutputFileFormat
 		}
 	}
-
 
 	return nil
 }
