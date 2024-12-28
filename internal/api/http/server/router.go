@@ -72,10 +72,61 @@ func createBucketHandler(fs *services.FileService, w http.ResponseWriter, r *htt
 }
 
 // getBucketHandler -> GET /buckets/{bucketName}
-func getBucketHandler(w http.ResponseWriter, r *http.Request, bucketName string) {
-	// TODO: implement logic (get bucket info or list objects)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("GET /buckets/" + bucketName + "\n"))
+func getBucketHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName string) {
+	// Retrieve the bucket by name
+	bucket, err := fs.GetBucket(bucketName)
+	if err != nil {
+		http.Error(w, "Bucket not found", http.StatusNotFound)
+		return
+	}
+
+	// Parse query parameters
+	query := r.URL.Query()
+	listObjects := query.Get("listObjects") == "true"
+	prefix := query.Get("prefix")
+
+	if listObjects {
+		// Filter objects by prefix, if provided
+		filteredObjects := filterObjects(bucket.Objects, prefix)
+
+		// Prepare the response
+		response := struct {
+			Name            string            `json:"name"`
+			CreationDate    time.Time         `json:"creationDate"`
+			NumberOfObjects int               `json:"numberOfObjects"`
+			Size            int               `json:"size"`
+			Objects         []entities.Object `json:"objects"`
+		}{
+			Name:            bucket.Name,
+			CreationDate:    bucket.CreationDate,
+			NumberOfObjects: len(filteredObjects),
+			Size:            bucket.Size,
+			Objects:         filteredObjects,
+		}
+
+		// Write the response
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(response)
+	} else {
+		// Prepare a partial response excluding the Objects field
+		partialBucket := struct {
+			Name            string    `json:"name"`
+			CreationDate    time.Time `json:"creationDate"`
+			NumberOfObjects int       `json:"numberOfObjects"`
+			Size            int       `json:"size"`
+		}{
+			Name:            bucket.Name,
+			CreationDate:    bucket.CreationDate,
+			NumberOfObjects: bucket.NumberOfObjects,
+			Size:            bucket.Size,
+		}
+
+		// Write the response
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(partialBucket)
+	}
 }
 
 // deleteBucketHandler -> DELETE /buckets/{bucketName}
@@ -153,7 +204,7 @@ func NewServer(fs *services.FileService) *Server {
 			// "/buckets/{bucketName}" (no second slash)
 			switch r.Method {
 			case http.MethodGet:
-				getBucketHandler(w, r, bucketName)
+				getBucketHandler(fs, w, r, bucketName)
 			case http.MethodDelete:
 				deleteBucketHandler(w, r, bucketName)
 			default:
@@ -183,4 +234,17 @@ func NewServer(fs *services.FileService) *Server {
 	})
 
 	return &Server{mux: mux}
+}
+
+// filterObjects filters objects based on the prefix
+func filterObjects(objects map[string]entities.Object, prefix string) []entities.Object {
+	var filtered []entities.Object
+
+	for _, obj := range objects {
+		if prefix == "" || strings.HasPrefix(obj.Key, prefix) {
+			filtered = append(filtered, obj)
+		}
+	}
+
+	return filtered
 }

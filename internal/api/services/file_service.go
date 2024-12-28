@@ -42,8 +42,8 @@ func NewFileService(cfg *config.Config) *FileService {
 			bucketName := file.Name()
 			bucketPath := filepath.Join(bucketsDir, bucketName)
 
-			// Get the number of objects (files) and total size
-			numberOfObjects, totalSize := calculateBucketStats(bucketPath)
+			// Get the objects (files), number of objects, and total size
+			objects, numberOfObjects, totalSize := loadBucketObjects(bucketPath)
 
 			// Add the bucket to the buckets map
 			buckets[bucketName] = entities.Bucket{
@@ -51,6 +51,7 @@ func NewFileService(cfg *config.Config) *FileService {
 				CreationDate:    getFolderCreationTime(bucketPath),
 				NumberOfObjects: numberOfObjects,
 				Size:            totalSize,
+				Objects:         objects,
 			}
 		}
 	}
@@ -59,6 +60,50 @@ func NewFileService(cfg *config.Config) *FileService {
 		buckets:       buckets,
 		RootDirectory: rootDir,
 	}
+}
+
+// loadBucketObjects loads all files (objects) in a bucket directory
+func loadBucketObjects(bucketPath string) (map[string]entities.Object, int, int) {
+	objects := make(map[string]entities.Object)
+	var totalSize int
+	var numberOfObjects int
+
+	err := filepath.Walk(bucketPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Only process files, ignore directories
+		if !info.IsDir() {
+			// Calculate the relative key within the bucket
+			relativeKey, err := filepath.Rel(bucketPath, path)
+			if err != nil {
+				return err
+			}
+
+			// Determine the file type (based on extension)
+			fileType := filepath.Ext(path)
+
+			// Create an Object and add it to the map
+			objects[relativeKey] = entities.Object{
+				Key:          relativeKey,
+				Size:         int(info.Size()),
+				LastModified: info.ModTime(),
+				Type:         fileType,
+			}
+
+			// Update totals
+			numberOfObjects++
+			totalSize += int(info.Size())
+		}
+		return nil
+	})
+
+	if err != nil {
+		panic("failed to load objects for bucket " + bucketPath + ": " + err.Error())
+	}
+
+	return objects, numberOfObjects, totalSize
 }
 
 // GetBucket retrieves a bucket by name
@@ -103,28 +148,4 @@ func getFolderCreationTime(folderPath string) time.Time {
 		return time.Now() // Default to now if we can't get the creation time
 	}
 	return info.ModTime()
-}
-
-// calculateBucketStats scans the directory to calculate the number of files and total size
-func calculateBucketStats(bucketPath string) (int, int) {
-	var numberOfObjects int
-	var totalSize int
-
-	err := filepath.Walk(bucketPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		// Only count files, not directories
-		if !info.IsDir() {
-			numberOfObjects++
-			totalSize += int(info.Size())
-		}
-		return nil
-	})
-
-	if err != nil {
-		panic("failed to calculate bucket stats for " + bucketPath + ": " + err.Error())
-	}
-
-	return numberOfObjects, totalSize
 }
