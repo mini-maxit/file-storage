@@ -141,11 +141,24 @@ func (fs *FileService) GetAllBuckets() []entities.Bucket {
 	return bucketList
 }
 
+func (fs *FileService) DeleteBucket(bucketName string) error {
+	// Delete the bucket directory from the file system
+	bucketPath := filepath.Join(fs.RootDirectory, "buckets", bucketName)
+	if err := os.RemoveAll(bucketPath); err != nil {
+		return errors.New("failed to delete bucket directory: " + err.Error())
+	}
+
+	// Delete the bucket from the in-memory map
+	delete(fs.buckets, bucketName)
+
+	return nil
+}
+
 // getFolderCreationTime retrieves the creation time of a folder (approximation using mod time)
 func getFolderCreationTime(folderPath string) time.Time {
 	info, err := os.Stat(folderPath)
 	if err != nil {
-		return time.Now() // Default to now if we can't get the creation time
+		return time.Now()
 	}
 	return info.ModTime()
 }
