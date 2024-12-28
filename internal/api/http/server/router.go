@@ -130,10 +130,29 @@ func getBucketHandler(fs *services.FileService, w http.ResponseWriter, r *http.R
 }
 
 // deleteBucketHandler -> DELETE /buckets/{bucketName}
-func deleteBucketHandler(w http.ResponseWriter, r *http.Request, bucketName string) {
-	// TODO: implement logic (delete the specified bucket)
-	// 204 is the correct success status for a delete with no content
-	w.WriteHeader(http.StatusNoContent)
+func deleteBucketHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName string) {
+	// Check if the bucket exists
+	bucket, err := fs.GetBucket(bucketName)
+	if err != nil {
+		http.Error(w, "Bucket not found", http.StatusNotFound)
+		return
+	}
+
+	// Check if the bucket is empty
+	if bucket.NumberOfObjects > 0 {
+		http.Error(w, "Bucket is not empty", http.StatusBadRequest)
+		return
+	}
+
+	// Remove the bucket from the in-memory map
+	err = fs.DeleteBucket(bucketName)
+	if err != nil {
+		http.Error(w, "Failed to delete bucket: "+err.Error(), http.StatusInternalServerError)
+	}
+
+	// Respond with 200 OK and a success message
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Bucket deleted successfully"))
 }
 
 // uploadMultipleHandler -> POST /buckets/{bucketName}/upload-multiple
@@ -206,7 +225,7 @@ func NewServer(fs *services.FileService) *Server {
 			case http.MethodGet:
 				getBucketHandler(fs, w, r, bucketName)
 			case http.MethodDelete:
-				deleteBucketHandler(w, r, bucketName)
+				deleteBucketHandler(fs, w, r, bucketName)
 			default:
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
