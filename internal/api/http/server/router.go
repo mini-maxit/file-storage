@@ -1,8 +1,11 @@
 package server
 
 import (
+	"encoding/json"
+	"github.com/mini-maxit/file-storage/internal/entities"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/mini-maxit/file-storage/internal/api/services"
 	"github.com/sirupsen/logrus"
@@ -22,17 +25,50 @@ func (s *Server) Run(addr string) error {
 // -----
 
 // listBucketsHandler -> GET /buckets
-func listBucketsHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO: implement logic (list all buckets)
+func listBucketsHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request) {
+	// Get all buckets from the FileService
+	buckets := fs.GetAllBuckets()
+
+	// Write the response as JSON
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("GET /buckets\n"))
+	if err := json.NewEncoder(w).Encode(buckets); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // createBucketHandler -> POST /buckets
-func createBucketHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO: implement logic (create a new bucket)
+func createBucketHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request) {
+	// Parse the request body to get the bucket name
+	var request struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Name == "" {
+		http.Error(w, "Invalid request body. 'name' is required.", http.StatusBadRequest)
+		return
+	}
+	bucketName := request.Name
+
+	// Check if the bucket already exists
+	if _, err := fs.GetBucket(bucketName); err == nil {
+		http.Error(w, "Bucket already exists.", http.StatusConflict)
+		return
+	}
+
+	// Create the new bucket
+	newBucket := entities.Bucket{
+		Name:         bucketName,
+		CreationDate: time.Now(),
+	}
+
+	if err := fs.CreateBucket(newBucket); err != nil {
+		http.Error(w, "Failed to create bucket.", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with success
 	w.WriteHeader(http.StatusCreated)
-	_, _ = w.Write([]byte("POST /buckets\n"))
+	_ = json.NewEncoder(w).Encode(newBucket)
 }
 
 // getBucketHandler -> GET /buckets/{bucketName}
@@ -81,16 +117,16 @@ func deleteObjectHandler(w http.ResponseWriter, r *http.Request, bucketName, obj
 // -----
 
 // NewServer sets up the routes and returns the Server object
-func NewServer(ts *services.TaskService) *Server {
+func NewServer(fs *services.FileService) *Server {
 	mux := http.NewServeMux()
 
 	// /buckets
 	mux.HandleFunc("/buckets", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			listBucketsHandler(w, r)
+			listBucketsHandler(fs, w, r)
 		case http.MethodPost:
-			createBucketHandler(w, r)
+			createBucketHandler(fs, w, r)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
