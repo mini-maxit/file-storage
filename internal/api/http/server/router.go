@@ -238,8 +238,28 @@ func putObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.R
 }
 
 // deleteObjectHandler -> DELETE /buckets/{bucketName}/{objectKey}
-func deleteObjectHandler(w http.ResponseWriter, r *http.Request, bucketName, objectKey string) {
-	// TODO: implement logic (delete an object from the bucket)
+func deleteObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName, objectKey string) {
+	// Check if the bucket exists
+	_, err := fs.GetBucket(bucketName)
+	if err != nil {
+		http.Error(w, "Bucket not found", http.StatusNotFound)
+		return
+	}
+
+	// Check if the object exists
+	_, err = fs.GetObject(bucketName, objectKey)
+	if err != nil {
+		http.Error(w, "Object not found", http.StatusNotFound)
+		return
+	}
+
+	// Remove the object
+	if err := fs.RemoveObject(bucketName, objectKey); err != nil {
+		http.Error(w, "Failed to delete object", http.StatusInternalServerError)
+		return
+	}
+
+	// Return 204 No Content on success
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -307,7 +327,7 @@ func NewServer(fs *services.FileService) *Server {
 		case http.MethodPut:
 			putObjectHandler(fs, w, r, bucketName, objectKey)
 		case http.MethodDelete:
-			deleteObjectHandler(w, r, bucketName, objectKey)
+			deleteObjectHandler(fs, w, r, bucketName, objectKey)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
