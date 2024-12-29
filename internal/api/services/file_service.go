@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -141,6 +142,7 @@ func (fs *FileService) GetAllBuckets() []entities.Bucket {
 	return bucketList
 }
 
+// DeleteBucket deletes a bucket
 func (fs *FileService) DeleteBucket(bucketName string) error {
 	// Delete the bucket directory from the file system
 	bucketPath := filepath.Join(fs.RootDirectory, "buckets", bucketName)
@@ -152,6 +154,99 @@ func (fs *FileService) DeleteBucket(bucketName string) error {
 	delete(fs.buckets, bucketName)
 
 	return nil
+}
+
+// AddOrUpdateObject adds or updates (if exists) an object in a bucket
+func (fs *FileService) AddOrUpdateObject(bucketName string, objectKey string, file io.Reader) error {
+	bucket, ok := fs.buckets[bucketName]
+	if !ok {
+		return errors.New("bucket not found")
+	}
+
+	// Create the directory for the object if it doesn't exist
+	objectPath := filepath.Join(fs.RootDirectory, "buckets", bucketName, objectKey)
+	objectDir := filepath.Dir(objectPath)
+	if err := os.MkdirAll(objectDir, 0755); err != nil {
+		return errors.New("failed to create object directory: " + err.Error())
+	}
+
+	// Open the destination file for writing (replace if it exists)
+	destFile, err := os.Create(objectPath)
+	if err != nil {
+		return errors.New("failed to create object file: " + err.Error())
+	}
+	defer func(destFile *os.File) {
+		err := destFile.Close()
+		if err != nil {
+			panic("failed to close object file: " + err.Error())
+		}
+	}(destFile)
+
+	// Copy the uploaded file to the destination file
+	if _, err := io.Copy(destFile, file); err != nil {
+		return errors.New("failed to copy object file: " + err.Error())
+	}
+
+	// Get file info
+	fileInfo, err := os.Stat(objectPath)
+	if err != nil {
+		return errors.New("failed to stat object file: " + err.Error())
+	}
+
+	size := fileInfo.Size()
+	lastModified := fileInfo.ModTime()
+
+	// Check if the object already exists
+	if existingObject, exists := bucket.Objects[objectKey]; exists {
+		// Update bucket metadata to reflect size changes
+		bucket.Size -= existingObject.Size
+	}
+
+	// Add or update the object in the map
+	bucket.Objects[objectKey] = entities.Object{
+		Key:          objectKey,
+		Size:         int(size),
+		LastModified: lastModified,
+		Type:         filepath.Ext(objectKey),
+	}
+
+	// Update bucket metadata
+	bucket.NumberOfObjects = len(bucket.Objects)
+	bucket.Size += int(size)
+	fs.buckets[bucketName] = bucket
+
+	return nil
+}
+
+// GetObject retrieves the object's metadata from the in-memory map
+func (fs *FileService) GetObject(bucketName, objectKey string) (entities.Object, error) {
+	bucket, ok := fs.buckets[bucketName]
+	if !ok {
+		return entities.Object{}, errors.New("bucket not found")
+	}
+
+	obj, exists := bucket.Objects[objectKey]
+	if !exists {
+		return entities.Object{}, errors.New("object not found")
+	}
+
+	return obj, nil
+}
+
+// GetObjectFilePath returns the absolute path of the object file on disk
+func (fs *FileService) GetObjectFilePath(bucketName, objectKey string) (string, error) {
+	// Build the path
+	objectPath := filepath.Join(fs.RootDirectory, "buckets", bucketName, objectKey)
+
+	// Check if file exists
+	info, err := os.Stat(objectPath)
+	if os.IsNotExist(err) || info.IsDir() {
+		return "", errors.New("object file not found or is a directory")
+	} else if err != nil {
+		return "", err
+	}
+
+	return objectPath, nil
 }
 
 // getFolderCreationTime retrieves the creation time of a folder (approximation using mod time)
