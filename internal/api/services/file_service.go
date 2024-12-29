@@ -249,6 +249,33 @@ func (fs *FileService) GetObjectFilePath(bucketName, objectKey string) (string, 
 	return objectPath, nil
 }
 
+// RemoveObject deletes an object file from disk and updates in-memory metadata.
+func (fs *FileService) RemoveObject(bucketName, objectKey string) error {
+	bucket, ok := fs.buckets[bucketName]
+	if !ok {
+		return errors.New("bucket not found")
+	}
+
+	obj, exists := bucket.Objects[objectKey]
+	if !exists {
+		return errors.New("object not found")
+	}
+
+	// Construct the file path on disk
+	objectPath := filepath.Join(fs.RootDirectory, "buckets", bucketName, objectKey)
+	if err := os.Remove(objectPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	// Update bucket metadata
+	bucket.Size -= obj.Size
+	delete(bucket.Objects, objectKey)
+	bucket.NumberOfObjects = len(bucket.Objects)
+
+	fs.buckets[bucketName] = bucket
+	return nil
+}
+
 // getFolderCreationTime retrieves the creation time of a folder (approximation using mod time)
 func getFolderCreationTime(folderPath string) time.Time {
 	info, err := os.Stat(folderPath)
