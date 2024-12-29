@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"github.com/mini-maxit/file-storage/internal/entities"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
@@ -163,17 +164,77 @@ func uploadMultipleHandler(w http.ResponseWriter, r *http.Request, bucketName st
 }
 
 // getObjectHandler -> GET /buckets/{bucketName}/{objectKey}
-func getObjectHandler(w http.ResponseWriter, r *http.Request, bucketName, objectKey string) {
-	// TODO: implement logic (download or get metadata about an object)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("GET /buckets/" + bucketName + "/" + objectKey + "\n"))
+func getObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName, objectKey string) {
+	// Parse query parameter: metadataOnly
+	query := r.URL.Query()
+	metadataOnly := strings.ToLower(query.Get("metadataOnly")) == "true"
+
+	// Get the object metadata from the service
+	obj, err := fs.GetObject(bucketName, objectKey)
+	if err != nil {
+		http.Error(w, "Object not found", http.StatusNotFound)
+		return
+	}
+
+	if metadataOnly {
+		// Return object metadata as JSON
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(obj)
+		return
+	}
+
+	// Otherwise, stream the file (binary data) back to the client
+	objectPath, err := fs.GetObjectFilePath(bucketName, objectKey)
+	if err != nil {
+		http.Error(w, "Object not found on disk", http.StatusNotFound)
+		return
+	}
+
+	// Serve the file. Go will set appropriate headers (Content-Type, Content-Length, etc.)
+	// If you want to enforce your own Content-Type, you can do so before calling ServeFile.
+	http.ServeFile(w, r, objectPath)
 }
 
 // putObjectHandler -> PUT /buckets/{bucketName}/{objectKey}
-func putObjectHandler(w http.ResponseWriter, r *http.Request, bucketName, objectKey string) {
-	// TODO: implement logic (upload or update an object)
+func putObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName, objectKey string) {
+	// Check if the bucket exists
+	_, err := fs.GetBucket(bucketName)
+	if err != nil {
+		http.Error(w, "Bucket not found", http.StatusNotFound)
+		return
+	}
+
+	// Parse the form data
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, "Failed to parse form data", http.StatusBadRequest)
+		return
+	}
+
+	// Retrieve the file from form-data
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "File not provided", http.StatusBadRequest)
+		return
+	}
+
+	defer func(file multipart.File) {
+		err := file.Close()
+		if err != nil {
+			http.Error(w, "Failed to close file: "+err.Error(), http.StatusInternalServerError)
+		}
+	}(file)
+
+	// Add or update the object in the bucket
+	err = fs.AddOrUpdateObject(bucketName, objectKey, file)
+	if err != nil {
+		http.Error(w, "Failed to update bucket metadata", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with success
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("PUT /buckets/" + bucketName + "/" + objectKey + "\n"))
+	_, _ = w.Write([]byte("Object uploaded or updated successfully"))
 }
 
 // deleteObjectHandler -> DELETE /buckets/{bucketName}/{objectKey}
@@ -242,9 +303,9 @@ func NewServer(fs *services.FileService) *Server {
 		objectKey := secondPart
 		switch r.Method {
 		case http.MethodGet:
-			getObjectHandler(w, r, bucketName, objectKey)
+			getObjectHandler(fs, w, r, bucketName, objectKey)
 		case http.MethodPut:
-			putObjectHandler(w, r, bucketName, objectKey)
+			putObjectHandler(fs, w, r, bucketName, objectKey)
 		case http.MethodDelete:
 			deleteObjectHandler(w, r, bucketName, objectKey)
 		default:
