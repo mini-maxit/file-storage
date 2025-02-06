@@ -1,6 +1,6 @@
 #%RAML 1.0
 title: File Storage
-version: v2
+version: v2.0.0
 baseUri:
 protocols: [ HTTPS ]
 
@@ -14,13 +14,15 @@ types:
     type: object
     properties:
       message: string
-      code: integer
+      code: number
 
   Bucket:
     type: object
     properties:
       name: string
       creationDate: date-time
+      numberOfObjects: number
+      size: number
 
   Buckets:
     type: array
@@ -32,7 +34,7 @@ types:
       key: string
       size: number
       lastModified: date-time
-      eTag: string
+      type: string
 
   ObjectList:
     type: object
@@ -47,16 +49,14 @@ types:
     properties:
       key: string
       bucket: string
-      eTag: string
-      location: string
 
   UploadMultipleResponse:
     type: object
     properties:
-      bucket: string
-      uploads:
+      message: string
+      files:
         type: array
-        items: UploadResponse
+        items: string
 
 /buckets:
   get:
@@ -66,16 +66,16 @@ types:
         body:
           application/json:
             type: Buckets
-            example:
+            example: |
               [
-                { "name": "photos", "creationDate": "2024-01-01T12:00:00Z" },
-                { "name": "documents", "creationDate": "2024-02-01T08:30:00Z" }
+                { "name": "photos", "creationDate": "2024-01-01T12:00:00Z", "numberOfObjects": 10, "size": 20480 },
+                { "name": "documents", "creationDate": "2024-02-01T08:30:00Z", "numberOfObjects": 5, "size": 10240 }
               ]
       400:
         body:
           application/json:
             type: ErrorResponse
-            example:
+            example: |
               {
                 "message": "Invalid parameters",
                 "code": 400
@@ -85,265 +85,264 @@ types:
     description: Create a new bucket.
     body:
       application/json:
-        example:
-          name: "my-new-bucket"
+        example: |
+          { "name": "my-new-bucket" }
     responses:
       201:
         body:
           application/json:
-            example:
+            example: |
               {
                 "name": "my-new-bucket",
-                "creationDate": "2024-03-01T09:15:00Z"
+                "creationDate": "2024-03-01T09:15:00Z",
+                "numberOfObjects": 0,
+                "size": 0
               }
       400:
         body:
           application/json:
             type: ErrorResponse
-            example:
+            example: |
               {
                 "message": "Bucket name already exists",
                 "code": 400
               }
 
-/buckets/{bucketName}:
-  uriParameters:
-    bucketName:
-      description: The name of the bucket.
-      type: string
-      required: true
-
-  get:
-    description: Get information about a specific bucket or list objects in that bucket.
-    queryParameters:
-      listObjects?:
-        description: If set to true, returns a list of objects in the bucket.
-        type: boolean
-        default: false
-      prefix?:
-        description: Filter the object list by this prefix (i.e., a "directory").
+  /{bucketName}:
+    uriParameters:
+      bucketName:
+        description: The name of the bucket.
         type: string
-        example: "photos/2024/event1/"
-    responses:
-      200:
-        body:
-          application/json:
-            oneOf:
-              - type: Bucket      # If listObjects is false
-              - type: ObjectList  # If listObjects is true
-        examples:
-          bucketInfo:
-            value:
-              name: "photos"
-              creationDate: "2024-01-01T12:00:00Z"
-          objectList:
-            value:
-              bucketName: "photos"
-              objects:
-                - key: "2024/event1/image1.jpg"
-                  size: 2048
-                  lastModified: "2024-01-10T10:00:00Z"
-                  eTag: "abcd1234"
-                - key: "2024/event2/image1.jpg"
-                  size: 4096
-                  lastModified: "2024-01-15T08:00:00Z"
-                  eTag: "abcd5678"
-      404:
-        body:
-          application/json:
-            type: ErrorResponse
-            example:
-              {
-                "message": "Bucket not found",
-                "code": 404
-              }
+        required: true
 
-  delete:
-    description: Delete the specified bucket. The bucket must be empty.
-    responses:
-      204:
-        description: Bucket successfully deleted. No content returned.
-      400:
-        body:
-          application/json:
-            type: ErrorResponse
-            example:
-              {
-                "message": "Bucket is not empty",
-                "code": 400
-              }
-      404:
-        body:
-          application/json:
-            type: ErrorResponse
-            example:
-              {
-                "message": "Bucket not found",
-                "code": 404
-              }
+    get:
+      description: Get information about a specific bucket or list objects in that bucket.
+      queryParameters:
+        listObjects?:
+          description: If set to true, returns a list of objects in the bucket.
+          type: boolean
+          default: false
+        prefix?:
+          description: Filter the object list by this prefix (i.e., a "directory").
+          type: string
+          example: "photos/2024/event1/"
+      responses:
+        200:
+          body:
+            application/json:
+              oneOf:
+                - type: Bucket      # When listObjects is false
+                - type: ObjectList  # When listObjects is true
+          examples:
+            bucketInfo:
+              value: |
+                {
+                  "name": "photos",
+                  "creationDate": "2024-01-01T12:00:00Z",
+                  "numberOfObjects": 10,
+                  "size": 20480
+                }
+            objectList:
+              value: |
+                {
+                  "bucketName": "photos",
+                  "objects": [
+                    {
+                      "key": "2024/event1/image1.jpg",
+                      "size": 2048,
+                      "lastModified": "2024-01-10T10:00:00Z",
+                      "type": "image/jpeg"
+                    },
+                    {
+                      "key": "2024/event2/image1.jpg",
+                      "size": 4096,
+                      "lastModified": "2024-01-15T08:00:00Z",
+                      "type": "image/jpeg"
+                    }
+                  ]
+                }
+        404:
+          body:
+            application/json:
+              type: ErrorResponse
+              example: |
+                {
+                  "message": "Bucket not found",
+                  "code": 404
+                }
 
-/buckets/{bucketName}/upload-multiple:
-  uriParameters:
-    bucketName:
-      description: The name of the bucket.
-      type: string
-      required: true
-  post:
-    description: >
-      Upload multiple files under the same prefix (if provided).
-      Each file is treated as an individual object with
-      a final key of `{prefix}{filename}`.
-    queryParameters:
-      prefix?:
-        description: The directory-like path to store all files under, e.g. `photos/2024/event1/`
-        type: string
-        example: "photos/2024/event1/"
-        default: ""
-    body:
-      multipart/form-data:
-        formParameters:
-          files[]:
-            description: One or more files to be uploaded under the same prefix.
-            type: file
-            required: true
-    responses:
-      200:
+    delete:
+      description: Delete the specified bucket. The bucket must be empty.
+      responses:
+        204:
+          description: Bucket successfully deleted. No content returned.
+        400:
+          body:
+            application/json:
+              type: ErrorResponse
+              example: |
+                {
+                  "message": "Bucket is not empty",
+                  "code": 400
+                }
+        404:
+          body:
+            application/json:
+              type: ErrorResponse
+              example: |
+                {
+                  "message": "Bucket not found",
+                  "code": 404
+                }
+
+    /upload-multiple:
+      uriParameters:
+        bucketName:
+          description: The name of the bucket.
+          type: string
+          required: true
+      post:
+        description: >
+          Upload multiple files under the same prefix (if provided).
+          Each file is stored as an individual object with a final key of `{prefix}{filename}`.
+        queryParameters:
+          prefix?:
+            description: The directory-like path to store all files under, e.g. `photos/2024/event1/`
+            type: string
+            example: "photos/2024/event1/"
+            default: ""
         body:
-          application/json:
-            type: UploadMultipleResponse
-            example:
-              {
-                "bucket": "photos",
-                "uploads": [
+          multipart/form-data:
+            formParameters:
+              files:
+                description: One or more files to be uploaded under the same prefix.
+                type: file
+                required: true
+        responses:
+          200:
+            body:
+              application/json:
+                type: UploadMultipleResponse
+                example: |
                   {
-                    "key": "photos/2024/event1/file1.jpg",
-                    "bucket": "photos",
-                    "eTag": "abc12345",
-                    "location": "https://api.example.com/v1/buckets/photos/photos/2024/event1/file1.jpg"
-                  },
-                  {
-                    "key": "photos/2024/event1/document.pdf",
-                    "bucket": "photos",
-                    "eTag": "xyz98765",
-                    "location": "https://api.example.com/v1/buckets/photos/photos/2024/event1/document.pdf"
+                    "message": "Files uploaded successfully",
+                    "files": [
+                      "photos/2024/event1/file1.jpg",
+                      "photos/2024/event1/document.pdf"
+                    ]
                   }
-                ]
-              }
-      400:
-        body:
-          application/json:
-            type: ErrorResponse
-            example:
-              {
-                "message": "Invalid file data or request parameters",
-                "code": 400
-              }
-      404:
-        body:
-          application/json:
-            type: ErrorResponse
-            example:
-              {
-                "message": "Bucket not found",
-                "code": 404
-              }
+          400:
+            body:
+              application/json:
+                type: ErrorResponse
+                example: |
+                  {
+                    "message": "Invalid file data or request parameters",
+                    "code": 400
+                  }
+          404:
+            body:
+              application/json:
+                type: ErrorResponse
+                example: |
+                  {
+                    "message": "Bucket not found",
+                    "code": 404
+                  }
 
-/buckets/{bucketName}/{objectKey}:
-  uriParameters:
-    bucketName:
-      description: The name of the bucket.
-      type: string
-      required: true
-    objectKey:
-      description: >
-        The key for the object (file) in the bucket, which may include slashes
-        to simulate a directory structure. For example:
-        `photos/2024/event1/image1.jpg`.
-      type: string
-      required: true
+    /{objectKey}:
+      uriParameters:
+        bucketName:
+          description: The name of the bucket.
+          type: string
+          required: true
+        objectKey:
+          description: >
+            The key for the object (file) in the bucket, which may include slashes
+            to simulate a directory structure. For example: `photos/2024/event1/image1.jpg`.
+          type: string
+          required: true
 
-  get:
-    description: Download or get metadata about an object in a bucket.
-    queryParameters:
-      metadataOnly?:
-        description: If set to true, returns only object metadata (JSON).
-        type: boolean
-        default: false
-    responses:
-      200:
-        description: Successful download or metadata retrieval.
+      get:
+        description: Download or get metadata about an object in a bucket.
+        queryParameters:
+          metadataOnly?:
+            description: If set to true, returns only object metadata (JSON).
+            type: boolean
+            default: false
+        responses:
+          200:
+            description: Successful download or metadata retrieval.
+            body:
+              application/json:
+                example: |
+                  {
+                    "key": "photos/2024/event1/image1.jpg",
+                    "size": 2048,
+                    "lastModified": "2024-01-10T10:00:00Z",
+                    "type": "image/jpeg"
+                  }
+              application/octet-stream:
+                description: The binary data (if metadataOnly is false and you want to download the file).
+          404:
+            body:
+              application/json:
+                type: ErrorResponse
+                example: |
+                  {
+                    "message": "Object not found",
+                    "code": 404
+                  }
+
+      put:
+        description: Upload or update an object in the specified bucket.
+        headers:
+          Content-Type:
+            description: The content type of the file being uploaded.
+            example: "image/jpeg"
         body:
-          application/json:
-            example:
-              {
-                "key": "photos/2024/event1/image1.jpg",
-                "size": 2048,
-                "lastModified": "2024-01-10T10:00:00Z",
-                "eTag": "abcd1234"
-              }
           application/octet-stream:
-            description: The binary data (if metadataOnly is false and you want to download the file).
-      404:
-        body:
-          application/json:
-            type: ErrorResponse
-            example:
-              {
-                "message": "Object not found",
-                "code": 404
-              }
+            description: The file data to be uploaded.
+        responses:
+          200:
+            body:
+              application/json:
+                type: UploadResponse
+                example: |
+                  {
+                    "key": "photos/2024/event1/image1.jpg",
+                    "bucket": "photos"
+                  }
+          400:
+            body:
+              application/json:
+                type: ErrorResponse
+                example: |
+                  {
+                    "message": "Invalid file data or request parameters",
+                    "code": 400
+                  }
+          404:
+            body:
+              application/json:
+                type: ErrorResponse
+                example: |
+                  {
+                    "message": "Bucket not found",
+                    "code": 404
+                  }
 
-  put:
-    description: Upload or update an object in the specified bucket.
-    headers:
-      Content-Type:
-        description: The content type of the file being uploaded.
-        example: "image/jpeg"
-    body:
-      application/octet-stream:
-        description: The file data to be uploaded
-    responses:
-      200:
-        body:
-          application/json:
-            type: UploadResponse
-            example:
-              {
-                "key": "photos/2024/event1/image1.jpg",
-                "bucket": "photos",
-                "eTag": "abcd1234",
-                "location": "https://api.example.com/v1/buckets/photos/photos/2024/event1/image1.jpg"
-              }
-      400:
-        body:
-          application/json:
-            type: ErrorResponse
-            example:
-              {
-                "message": "Invalid file data or request parameters",
-                "code": 400
-              }
-      404:
-        body:
-          application/json:
-            type: ErrorResponse
-            example:
-              {
-                "message": "Bucket not found",
-                "code": 404
-              }
-
-  delete:
-    description: Delete an object from the specified bucket.
-    responses:
-      204:
-        description: Object successfully deleted. No content returned.
-      404:
-        body:
-          application/json:
-            type: ErrorResponse
-            example:
-              {
-                "message": "Object not found",
-                "code": 404
-              }
+      delete:
+        description: Delete an object from the specified bucket.
+        responses:
+          204:
+            description: Object successfully deleted. No content returned.
+          404:
+            body:
+              application/json:
+                type: ErrorResponse
+                example: |
+                  {
+                    "message": "Object not found",
+                    "code": 404
+                  }
