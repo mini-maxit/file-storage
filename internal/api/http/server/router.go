@@ -26,7 +26,7 @@ func (s *Server) Run(addr string) error {
 // -----
 
 // listBucketsHandler -> GET /buckets
-func listBucketsHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request) {
+func listBucketsHandler(fs *services.FileService, w http.ResponseWriter) {
 	// Get all buckets from the FileService
 	buckets := fs.GetAllBuckets()
 
@@ -131,7 +131,7 @@ func getBucketHandler(fs *services.FileService, w http.ResponseWriter, r *http.R
 }
 
 // deleteBucketHandler -> DELETE /buckets/{bucketName}
-func deleteBucketHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName string) {
+func deleteBucketHandler(fs *services.FileService, w http.ResponseWriter, bucketName string) {
 	// Check if the bucket exists
 	bucket, err := fs.GetBucket(bucketName)
 	if err != nil {
@@ -156,11 +156,71 @@ func deleteBucketHandler(fs *services.FileService, w http.ResponseWriter, r *htt
 	_, _ = w.Write([]byte("Bucket deleted successfully"))
 }
 
-// uploadMultipleHandler -> POST /buckets/{bucketName}/upload-multiple
-func uploadMultipleHandler(w http.ResponseWriter, r *http.Request, bucketName string) {
-	// TODO: implement logic (upload multiple files under the same prefix)
+// uploadMultipleHandler -> POST /buckets/{bucketName}/upload-multiple?prefix=<prefix>
+func uploadMultipleHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName string) {
+	// Get the common prefix from the query parameters.
+	prefix := r.URL.Query().Get("prefix")
+	// Ensure the prefix ends with a slash if provided.
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix = prefix + "/"
+	}
+
+	// Parse the multipart form with a maxMemory of 10MB.
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, "Failed to parse multipart form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Retrieve the files from the "files" form field.
+	fileHeaders := r.MultipartForm.File["files"]
+	if len(fileHeaders) == 0 {
+		http.Error(w, "No files provided", http.StatusBadRequest)
+		return
+	}
+
+	// Keep track of the uploaded object keys.
+	uploadedFiles := make([]string, 0, len(fileHeaders))
+
+	// Iterate over each file.
+	for _, fh := range fileHeaders {
+		// Open the uploaded file.
+		file, err := fh.Open()
+		if err != nil {
+			http.Error(w, "Failed to open uploaded file: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		func(f multipart.File, filename string) {
+			defer func(f multipart.File) {
+				err := f.Close()
+				if err != nil {
+				}
+			}(f)
+			// Construct the object key using the prefix and the original filename.
+			objectKey := prefix + filename
+			// Add or update the object.
+			if err := fs.AddOrUpdateObject(bucketName, objectKey, f); err != nil {
+				logrus.Errorf("failed to upload file %s: %v", filename, err)
+				http.Error(w, "Failed to upload file "+filename+": "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			// Append the uploaded file key.
+			uploadedFiles = append(uploadedFiles, objectKey)
+		}(file, fh.Filename)
+	}
+
+	// Respond with a success message and the list of uploaded object keys.
+	response := struct {
+		Message string   `json:"message"`
+		Files   []string `json:"files"`
+	}{
+		Message: "Files uploaded successfully",
+		Files:   uploadedFiles,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("POST /buckets/" + bucketName + "/upload-multiple\n"))
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // getObjectHandler -> GET /buckets/{bucketName}/{objectKey}
@@ -238,7 +298,7 @@ func putObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.R
 }
 
 // deleteObjectHandler -> DELETE /buckets/{bucketName}/{objectKey}
-func deleteObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName, objectKey string) {
+func deleteObjectHandler(fs *services.FileService, w http.ResponseWriter, bucketName, objectKey string) {
 	// Check if the bucket exists
 	_, err := fs.GetBucket(bucketName)
 	if err != nil {
@@ -275,7 +335,7 @@ func NewServer(fs *services.FileService) *Server {
 	mux.HandleFunc("/buckets", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			listBucketsHandler(fs, w, r)
+			listBucketsHandler(fs, w)
 		case http.MethodPost:
 			createBucketHandler(fs, w, r)
 		default:
@@ -306,7 +366,7 @@ func NewServer(fs *services.FileService) *Server {
 			case http.MethodGet:
 				getBucketHandler(fs, w, r, bucketName)
 			case http.MethodDelete:
-				deleteBucketHandler(fs, w, r, bucketName)
+				deleteBucketHandler(fs, w, bucketName)
 			default:
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
@@ -316,7 +376,7 @@ func NewServer(fs *services.FileService) *Server {
 		secondPart := parts[1]
 
 		if secondPart == "upload-multiple" && r.Method == http.MethodPost {
-			uploadMultipleHandler(w, r, bucketName)
+			uploadMultipleHandler(fs, w, r, bucketName)
 			return
 		}
 
@@ -327,7 +387,7 @@ func NewServer(fs *services.FileService) *Server {
 		case http.MethodPut:
 			putObjectHandler(fs, w, r, bucketName, objectKey)
 		case http.MethodDelete:
-			deleteObjectHandler(fs, w, r, bucketName, objectKey)
+			deleteObjectHandler(fs, w, bucketName, objectKey)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
