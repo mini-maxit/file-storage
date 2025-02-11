@@ -223,9 +223,10 @@ types:
           multipart/form-data:
             formParameters:
               files:
-                description: One or more files to be uploaded under the same prefix.
+                description: A single key "files" containing one or more files to be uploaded.
                 type: file
                 required: true
+                repeat: true
         responses:
           200:
             body:
