@@ -225,6 +225,36 @@ func uploadMultipleHandler(fs *services.FileService, w http.ResponseWriter, r *h
 	}
 }
 
+// removeMultipleHandler -> DELETE /buckets/{bucketName}/remove-multiple?prefix=<prefix>
+func removeMultipleHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName string, log *zap.SugaredLogger) {
+	log.Infof("Removing multiple objects from bucket %s", bucketName)
+	prefix := r.URL.Query().Get("prefix")
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix = prefix + "/"
+	}
+
+	removedObjects, err := fs.RemoveObjects(bucketName, prefix)
+	if err != nil {
+		log.Errorf("Failed to remove objects with prefix '%s' from bucket %s: %v", prefix, bucketName, err)
+		http.Error(w, "Failed to remove objects: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := struct {
+		Message        string            `json:"message"`
+		RemovedObjects []entities.Object `json:"removedObjects"`
+	}{
+		Message:        "Objects removed successfully",
+		RemovedObjects: removedObjects,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Errorf("Failed to encode remove objects response: %v", err)
+	}
+}
+
 // getObjectHandler -> GET /buckets/{bucketName}/{objectKey}
 func getObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName, objectKey string, log *zap.SugaredLogger) {
 	log.Infof("Getting object %s from bucket %s", objectKey, bucketName)
@@ -348,6 +378,7 @@ func NewServer(fs *services.FileService, appLog *zap.SugaredLogger) *Server {
 		//   GET /buckets/{bucketName}
 		//   DELETE /buckets/{bucketName}
 		//   POST /buckets/{bucketName}/upload-multiple
+		//   DELETE /buckets/{bucketName}/remove-multiple?prefix=<prefix>
 		//   GET/PUT/DELETE /buckets/{bucketName}/{objectKey}
 		path := strings.TrimPrefix(r.URL.Path, "/buckets/")
 		if path == "" {
@@ -373,6 +404,10 @@ func NewServer(fs *services.FileService, appLog *zap.SugaredLogger) *Server {
 		secondPart := parts[1]
 		if secondPart == "upload-multiple" && r.Method == http.MethodPost {
 			uploadMultipleHandler(fs, w, r, bucketName, appLog)
+			return
+		}
+		if secondPart == "remove-multiple" && r.Method == http.MethodDelete {
+			removeMultipleHandler(fs, w, r, bucketName, appLog)
 			return
 		}
 
