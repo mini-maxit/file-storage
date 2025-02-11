@@ -23,21 +23,17 @@ func init() {
 	// Use the system temp directory.
 	tempDir := os.TempDir()
 
-	// Construct directories for service and HTTP logs.
-	serviceLogDir := filepath.Join(tempDir, "file-storage", "logs", "services")
-	httpLogDir := filepath.Join(tempDir, "file-storage", "logs", "http")
+	// Construct directory for service and HTTP logs.
+	logDir := filepath.Join(tempDir, "file-storage", "logs")
 
-	// Create directories if they don't exist.
-	if err := os.MkdirAll(serviceLogDir, 0755); err != nil {
-		fmt.Printf("Error creating service log directory: %v\n", err)
-	}
-	if err := os.MkdirAll(httpLogDir, 0755); err != nil {
-		fmt.Printf("Error creating HTTP log directory: %v\n", err)
+	// Create directory if it doesn't exist.
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		fmt.Printf("Error creating log directory: %v\n", err)
 	}
 
 	// Set the full paths for the log files.
-	logPath = filepath.Join(serviceLogDir, "log.txt")
-	httpLogPath = filepath.Join(httpLogDir, "log.txt")
+	logPath = filepath.Join(logDir, "service.log")
+	httpLogPath = filepath.Join(logDir, "http.log")
 }
 
 // InitializeLogger sets up Zap with a custom configuration and initializes the SugaredLogger.
@@ -66,7 +62,7 @@ func InitializeLogger() {
 		NameKey:        "source",
 		MessageKey:     "msg",
 		EncodeTime:     zapcore.ISO8601TimeEncoder,
-		EncodeLevel:    zapcore.CapitalLevelEncoder, // no colors for file output
+		EncodeLevel:    zapcore.CapitalLevelEncoder,
 		EncodeDuration: zapcore.StringDurationEncoder,
 	}
 
@@ -77,7 +73,7 @@ func InitializeLogger() {
 		NameKey:        "source",
 		MessageKey:     "msg",
 		EncodeTime:     zapcore.ISO8601TimeEncoder,
-		EncodeLevel:    zapcore.CapitalColorLevelEncoder, // colors enabled here
+		EncodeLevel:    zapcore.CapitalColorLevelEncoder,
 		EncodeDuration: zapcore.StringDurationEncoder,
 	}
 
