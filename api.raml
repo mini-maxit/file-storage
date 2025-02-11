@@ -58,6 +58,14 @@ types:
         type: array
         items: string
 
+  RemoveMultipleResponse:
+    type: object
+    properties:
+      message: string
+      removedObjects:
+        type: array
+        items: ObjectMetadata
+
 /buckets:
   get:
     description: List all buckets for the authenticated user.
@@ -248,6 +256,71 @@ types:
                   {
                     "message": "Bucket not found",
                     "code": 404
+                  }
+
+    /remove-multiple:
+      uriParameters:
+        bucketName:
+          description: The name of the bucket.
+          type: string
+          required: true
+      delete:
+        description: Delete multiple objects in the specified bucket with keys starting with the given prefix.
+        queryParameters:
+          prefix?:
+            description: Filter objects by this prefix (e.g., `photos/2024/event1/`).
+            type: string
+            example: "photos/2024/event1/"
+            default: ""
+        responses:
+          200:
+            body:
+              application/json:
+                type: RemoveMultipleResponse
+                example: |
+                  {
+                    "message": "Objects removed successfully",
+                    "removedObjects": [
+                      {
+                        "key": "photos/2024/event1/image1.jpg",
+                        "size": 2048,
+                        "lastModified": "2024-01-10T10:00:00Z",
+                        "type": "image/jpeg"
+                      },
+                      {
+                        "key": "photos/2024/event1/document.pdf",
+                        "size": 10240,
+                        "lastModified": "2024-01-12T10:00:00Z",
+                        "type": "application/pdf"
+                      }
+                    ]
+                  }
+          400:
+            body:
+              application/json:
+                type: ErrorResponse
+                example: |
+                  {
+                    "message": "Invalid request parameters",
+                    "code": 400
+                  }
+          404:
+            body:
+              application/json:
+                type: ErrorResponse
+                example: |
+                  {
+                    "message": "Bucket not found",
+                    "code": 404
+                  }
+          500:
+            body:
+              application/json:
+                type: ErrorResponse
+                example: |
+                  {
+                    "message": "Failed to remove objects",
+                    "code": 500
                   }
 
     /{objectKey}:

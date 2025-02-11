@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mini-maxit/file-storage/internal/config"
@@ -282,6 +283,41 @@ func (fs *FileService) RemoveObject(bucketName, objectKey string) error {
 	delete(bucket.Objects, objectKey)
 	bucket.NumberOfObjects = len(bucket.Objects)
 	return nil
+}
+
+// RemoveObjects deletes all objects in the specified bucket whose keys start with the given prefix.
+func (fs *FileService) RemoveObjects(bucketName, prefix string) ([]entities.Object, error) {
+	bucket, ok := fs.buckets[bucketName]
+	if !ok {
+		return nil, errors.New("bucket not found")
+	}
+
+	var removedObjects []entities.Object
+
+	// Iterate over a copy of the keys to avoid modifying the map during iteration.
+	for key, obj := range bucket.Objects {
+		if strings.HasPrefix(key, prefix) {
+			// Construct the absolute path of the object file.
+			objectPath := filepath.Join(fs.RootDirectory, "buckets", bucketName, key)
+
+			// Remove the file from disk.
+			if err := os.Remove(objectPath); err != nil && !os.IsNotExist(err) {
+				return nil, errors.New("failed to remove object " + key + ": " + err.Error())
+			}
+
+			// Append the object to the list of removed objects.
+			removedObjects = append(removedObjects, obj)
+
+			// Update bucket metadata.
+			bucket.Size -= obj.Size
+			delete(bucket.Objects, key)
+		}
+	}
+
+	// Update the number of objects in the bucket.
+	bucket.NumberOfObjects = len(bucket.Objects)
+
+	return removedObjects, nil
 }
 
 // getFolderCreationTime retrieves the creation time of a folder (approximation using mod time).
