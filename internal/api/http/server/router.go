@@ -33,7 +33,7 @@ func (s *Server) Run(addr string) error {
 // listBucketsHandler -> GET /buckets
 func listBucketsHandler(fs *services.FileService, w http.ResponseWriter, log *zap.SugaredLogger) {
 	log.Info("Listing all buckets")
-	buckets := fs.GetAllBuckets()
+	buckets := fs.GetAllBucketsMetadata()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
