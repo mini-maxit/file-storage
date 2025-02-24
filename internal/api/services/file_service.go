@@ -13,8 +13,8 @@ import (
 )
 
 type FileService struct {
-	buckets       map[string]*entities.Bucket
-	RootDirectory string
+	buckets          map[string]*entities.Bucket
+	BucketsDirectory string
 }
 
 func NewFileService(cfg *config.Config) *FileService {
@@ -59,8 +59,8 @@ func NewFileService(cfg *config.Config) *FileService {
 	}
 
 	return &FileService{
-		buckets:       buckets,
-		RootDirectory: rootDir,
+		buckets:          buckets,
+		BucketsDirectory: bucketsDir,
 	}
 }
 
@@ -123,7 +123,7 @@ func (fs *FileService) CreateBucket(bucket entities.Bucket) error {
 	}
 
 	// Create the bucket directory in the filesystem.
-	bucketPath := filepath.Join(fs.RootDirectory, "buckets", bucket.Name)
+	bucketPath := filepath.Join(fs.BucketsDirectory, bucket.Name)
 	err := os.MkdirAll(bucketPath, 0755)
 	if err != nil {
 		return errors.New("failed to create bucket directory: " + err.Error())
@@ -139,8 +139,8 @@ func (fs *FileService) CreateBucket(bucket entities.Bucket) error {
 	return nil
 }
 
-// GetAllBuckets retrieves all buckets' metadata (without the objects).
-func (fs *FileService) GetAllBuckets() []*entities.Bucket {
+// GetAllBucketsMetadata retrieves all buckets' metadata (without the objects).
+func (fs *FileService) GetAllBucketsMetadata() []*entities.Bucket {
 	bucketList := make([]*entities.Bucket, 0, len(fs.buckets))
 	for _, bucket := range fs.buckets {
 		// Create a shallow copy of bucket metadata without the objects.
@@ -159,7 +159,7 @@ func (fs *FileService) GetAllBuckets() []*entities.Bucket {
 // DeleteBucket deletes a bucket.
 func (fs *FileService) DeleteBucket(bucketName string) error {
 	// Delete the bucket directory from the file system.
-	bucketPath := filepath.Join(fs.RootDirectory, "buckets", bucketName)
+	bucketPath := filepath.Join(fs.BucketsDirectory, bucketName)
 	if err := os.RemoveAll(bucketPath); err != nil {
 		return errors.New("failed to delete bucket directory: " + err.Error())
 	}
@@ -177,7 +177,7 @@ func (fs *FileService) AddOrUpdateObject(bucketName string, objectKey string, fi
 	}
 
 	// Create the directory for the object if it doesn't exist.
-	objectPath := filepath.Join(fs.RootDirectory, "buckets", bucketName, objectKey)
+	objectPath := filepath.Join(fs.BucketsDirectory, bucketName, objectKey)
 	objectDir := filepath.Dir(objectPath)
 	if err := os.MkdirAll(objectDir, 0755); err != nil {
 		return errors.New("failed to create object directory: " + err.Error())
@@ -189,8 +189,8 @@ func (fs *FileService) AddOrUpdateObject(bucketName string, objectKey string, fi
 		return errors.New("failed to create object file: " + err.Error())
 	}
 	defer func() {
-		if cerr := destFile.Close(); cerr != nil {
-			panic("failed to close object file: " + cerr.Error())
+		if err := destFile.Close(); err != nil {
+			panic("failed to close object file: " + err.Error())
 		}
 	}()
 
@@ -247,7 +247,7 @@ func (fs *FileService) GetObject(bucketName, objectKey string) (*entities.Object
 // GetObjectFilePath returns the absolute path of the object file on disk.
 func (fs *FileService) GetObjectFilePath(bucketName, objectKey string) (string, error) {
 	// Build the path.
-	objectPath := filepath.Join(fs.RootDirectory, "buckets", bucketName, objectKey)
+	objectPath := filepath.Join(fs.BucketsDirectory, bucketName, objectKey)
 
 	// Check if file exists.
 	info, err := os.Stat(objectPath)
@@ -273,7 +273,7 @@ func (fs *FileService) RemoveObject(bucketName, objectKey string) error {
 	}
 
 	// Construct the file path on disk.
-	objectPath := filepath.Join(fs.RootDirectory, "buckets", bucketName, objectKey)
+	objectPath := filepath.Join(fs.BucketsDirectory, bucketName, objectKey)
 	if err := os.Remove(objectPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -298,7 +298,7 @@ func (fs *FileService) RemoveObjects(bucketName, prefix string) ([]entities.Obje
 	for key, obj := range bucket.Objects {
 		if strings.HasPrefix(key, prefix) {
 			// Construct the absolute path of the object file.
-			objectPath := filepath.Join(fs.RootDirectory, "buckets", bucketName, key)
+			objectPath := filepath.Join(fs.BucketsDirectory, bucketName, key)
 
 			// Remove the file from disk.
 			if err := os.Remove(objectPath); err != nil && !os.IsNotExist(err) {
