@@ -42,3 +42,4 @@ jobs:
           tags: ${{ vars.DOCKER_REPO }}/maxit-file-storage:${{ env.DOCKER_TAG }}
           cache-from: type=registry,ref=${{ vars.DOCKER_REPO }}/maxit-file-storage:buildcache
           cache-to: type=registry,ref=${{ vars.DOCKER_REPO }}/maxit-file-storage:buildcache,mode=max
+          platforms: linux/amd64,linux/arm64/v8
