@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/mini-maxit/file-storage/internal/config"
-	"github.com/mini-maxit/file-storage/internal/entities"
+	"github.com/mini-maxit/file-storage/pkg/filestorage/entities"
 )
 
 type FileService struct {

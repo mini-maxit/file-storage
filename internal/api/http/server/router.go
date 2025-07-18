@@ -6,12 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"mime/multipart"
+
 	"github.com/mini-maxit/file-storage/internal/api/http/middleware"
 	"github.com/mini-maxit/file-storage/internal/api/services"
-	"github.com/mini-maxit/file-storage/internal/entities"
 	"github.com/mini-maxit/file-storage/internal/logger"
+	"github.com/mini-maxit/file-storage/pkg/filestorage/entities"
 	"go.uber.org/zap"
-	"mime/multipart"
 )
 
 // Server represents our HTTP server.
