@@ -28,4 +28,4 @@ go.work.sum
 *.DS_Store
 
 # Production folders
-tasks/
+root
