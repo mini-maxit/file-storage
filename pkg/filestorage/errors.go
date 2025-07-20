@@ -6,12 +6,12 @@ import (
 
 // ErrAPI represents an error returned by the API.
 type ErrAPI struct {
-	statusCode int
-	message    string
+	StatusCode int
+	Message    string
 }
 
 func (e *ErrAPI) Error() string {
-	return fmt.Sprintf("[HTTP %d] API error: %s", e.statusCode, e.message)
+	return fmt.Sprintf("[HTTP %d] API error: %s", e.StatusCode, e.Message)
 }
 
 // ErrClient wraps an error that occurs on the client side,

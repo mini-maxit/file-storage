@@ -84,8 +84,8 @@ func (fs *fileStorage) GetBuckets() ([]entities.Bucket, error) {
 			}
 		}
 		return nil, &ErrAPI{
-			statusCode: resp.StatusCode,
-			message:    string(msg),
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
 		}
 	}
 
@@ -147,8 +147,8 @@ func (fs *fileStorage) CreateBucket(bucketName string) error {
 			}
 		}
 		return &ErrAPI{
-			statusCode: resp.StatusCode,
-			message:    string(msg),
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
 		}
 	}
 	return nil
@@ -181,8 +181,8 @@ func (fs *fileStorage) GetBucket(bucketName string) (*entities.Bucket, error) {
 			}
 		}
 		return nil, &ErrAPI{
-			statusCode: resp.StatusCode,
-			message:    string(msg),
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
 		}
 	}
 
@@ -237,8 +237,8 @@ func (fs *fileStorage) DeleteBucket(bucketName string) error {
 			}
 		}
 		return &ErrAPI{
-			statusCode: resp.StatusCode,
-			message:    string(msg),
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
 		}
 	}
 
@@ -343,8 +343,8 @@ func (fs *fileStorage) UploadMultipleFiles(bucketName string, directoryPrefix st
 			}
 		}
 		return &ErrAPI{
-			statusCode: resp.StatusCode,
-			message:    string(msg),
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
 		}
 	}
 
@@ -388,8 +388,8 @@ func (fs *fileStorage) DeleteMultipleFiles(bucketName string, directoryPrefix st
 			}
 		}
 		return &ErrAPI{
-			statusCode: resp.StatusCode,
-			message:    string(msg),
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
 		}
 	}
 
@@ -425,8 +425,8 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 			}
 		}
 		return nil, &ErrAPI{
-			statusCode: resp.StatusCode,
-			message:    string(msg),
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
 		}
 	}
 
@@ -471,8 +471,8 @@ func (fs *fileStorage) GetFileMetadata(bucketName string, objectKey string) (*en
 			}
 		}
 		return nil, &ErrAPI{
-			statusCode: resp.StatusCode,
-			message:    string(msg),
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
 		}
 	}
 
@@ -560,8 +560,8 @@ func (fs *fileStorage) UploadFile(bucketName string, objectKey string, file *os.
 			}
 		}
 		return &ErrAPI{
-			statusCode: resp.StatusCode,
-			message:    string(msg),
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
 		}
 	}
 	return nil
@@ -623,8 +623,8 @@ func (fs *fileStorage) DeleteFile(bucketName string, objectKey string) error {
 			}
 		}
 		return &ErrAPI{
-			statusCode: resp.StatusCode,
-			message:    string(msg),
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
 		}
 	}
 
