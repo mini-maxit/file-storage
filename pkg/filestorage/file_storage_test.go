@@ -13,6 +13,7 @@ import (
 
 	"github.com/mini-maxit/file-storage/pkg/filestorage"
 	"github.com/mini-maxit/file-storage/pkg/filestorage/entities"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetBuckets(t *testing.T) {
@@ -229,7 +230,7 @@ func TestDeleteFile(t *testing.T) {
 			t.Errorf("Expected DELETE request to /buckets/test-bucket/test-file, got %s %s", r.Method, r.URL.Path)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
 
@@ -436,10 +437,7 @@ func TestUploadMultipleFilesEmpty(t *testing.T) {
 	}
 
 	err = storage.UploadMultipleFiles(bucketName, "prefix", files)
-	if err != nil {
-		t.Fatalf("Failed to upload empty file list: %v", err)
-	}
-
+	assert.Error(t, err)
 }
 
 func TestDeleteMultipleFiles(t *testing.T) {
