@@ -29,6 +29,7 @@ type FileStorage interface {
 	DeleteMultipleFiles(bucketName string, directoryPrefix string) error
 
 	GetFile(bucketName string, objectKey string) ([]byte, error)
+	GetFileURL(bucketName string, objectKey string) string
 	GetFileMetadata(bucketName string, objectKey string) (*entities.Object, error)
 	UploadFile(bucketName string, objectKey string, file *os.File) error
 	DeleteFile(bucketName string, objectKey string) error
@@ -440,6 +441,12 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 		}
 	}
 	return fileContent, nil
+}
+
+// GetFileURL returns the direct URL to access a file in the specified bucket
+func (fs *fileStorage) GetFileURL(bucketName string, objectKey string) string {
+	apiPrefix := fmt.Sprintf("/buckets/%s/%s&metadataOnly=false", bucketName, objectKey)
+	return fs.config.URL + apiPrefix
 }
 
 func (fs *fileStorage) GetFileMetadata(bucketName string, objectKey string) (*entities.Object, error) {
