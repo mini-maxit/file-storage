@@ -445,7 +445,7 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 
 // GetFileURL returns the direct URL to access a file in the specified bucket
 func (fs *fileStorage) GetFileURL(bucketName string, objectKey string) string {
-	apiPrefix := fmt.Sprintf("/buckets/%s/%s&metadataOnly=false", bucketName, objectKey)
+	apiPrefix := fmt.Sprintf("/buckets/%s/%s?metadataOnly=false", bucketName, objectKey)
 	return fs.config.URL + apiPrefix
 }
 
