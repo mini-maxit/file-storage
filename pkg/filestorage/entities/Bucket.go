@@ -7,5 +7,5 @@ type Bucket struct {
 	CreationDate    time.Time         `json:"creationDate"`
 	NumberOfObjects int               `json:"numberOfObjects"`
 	Size            int               `json:"size"`
-	Objects         map[string]Object `json:"objects"`
+	Objects         map[string]Object `json:"objects,omitempty"`
 }

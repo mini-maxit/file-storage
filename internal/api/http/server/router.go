@@ -75,6 +75,7 @@ func createBucketHandler(fs *services.FileService, w http.ResponseWriter, r *htt
 	}
 
 	log.Infof("Bucket %s created successfully", bucketName)
+	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(newBucket); err != nil {
 		log.Errorf("Failed to encode new bucket response: %v", err)
