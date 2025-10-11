@@ -130,11 +130,15 @@ func getBucketHandler(fs *services.FileService, w http.ResponseWriter, r *http.R
 			Size:            bucket.Size,
 		}
 
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		if err := json.NewEncoder(w).Encode(partialBucket); err != nil {
 			log.Errorf("Failed to encode bucket response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Header().Add("Content-Type", "text/plain")
+			w.Write([]byte("Failed to encode response"))
+			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 	}
 }
 
