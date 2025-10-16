@@ -3,9 +3,10 @@
 package config
 
 import (
-	"github.com/joho/godotenv"
 	"log"
 	"os"
+
+	"github.com/joho/godotenv"
 )
 
 // Config holds the configuration values needed by the application.
@@ -33,7 +34,7 @@ func NewConfig() *Config {
 
 	rootDirectory := os.Getenv("ROOT_DIRECTORY")
 	if rootDirectory == "" {
-		rootDirectory = "root"
+		rootDirectory = "file-storage-media"
 	}
 
 	return &Config{
