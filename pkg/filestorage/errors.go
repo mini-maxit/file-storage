@@ -1,7 +1,21 @@
 package filestorage
 
 import (
+	"errors"
 	"fmt"
+)
+
+var (
+	ErrBucketAlreadyExists    = errors.New("bucket already exists")
+	ErrBucketNotFound         = errors.New("bucket not found")
+	ErrFailedToCreateBucket   = errors.New("failed to create bucket")
+	ErrFailedToScanBuckets    = errors.New("failed to scan buckets directory")
+	ErrFailedToLoadObjects    = errors.New("failed to load objects for bucket")
+	ErrBucketNotEmpty         = errors.New("bucket not empty")
+	ErrFailedToEncodeResponse = errors.New("failed to encode response")
+	ErrFailedToGetBucket      = errors.New("failed to get bucket")
+	ErrObjectNotFound         = errors.New("object not found")
+	ErrFailedToGetObject      = errors.New("failed to get object")
 )
 
 // ErrAPI represents an error returned by the API.

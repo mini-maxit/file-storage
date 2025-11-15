@@ -1,25 +1,22 @@
 package services
 
 import (
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/mini-maxit/file-storage/internal/config"
+	errors "github.com/mini-maxit/file-storage/pkg/filestorage"
 	"github.com/mini-maxit/file-storage/pkg/filestorage/entities"
 )
 
 type FileService struct {
-	buckets          map[string]*entities.Bucket
 	BucketsDirectory string
 }
 
 func NewFileService(cfg *config.Config) *FileService {
 	rootDir := cfg.RootDirectory
-	buckets := make(map[string]*entities.Bucket)
 
 	// Define the /buckets path
 	bucketsDir := filepath.Join(rootDir, "buckets")
@@ -33,10 +30,20 @@ func NewFileService(cfg *config.Config) *FileService {
 		}
 	}
 
+	return &FileService{
+		BucketsDirectory: bucketsDir,
+	}
+}
+
+// DONE?
+// returns unfiltered errors from os package
+func scanBucketsDirectory(bucketsDir string) (map[string]*entities.Bucket, error) {
+	buckets := make(map[string]*entities.Bucket)
+
 	// Scan the /buckets directory for folders
 	files, err := os.ReadDir(bucketsDir)
 	if err != nil {
-		panic("failed to scan /buckets directory: " + err.Error())
+		return nil, err
 	}
 
 	for _, file := range files {
@@ -45,29 +52,25 @@ func NewFileService(cfg *config.Config) *FileService {
 			bucketPath := filepath.Join(bucketsDir, bucketName)
 
 			// Get the objects (files), number of objects, and total size
-			objects, numberOfObjects, totalSize := loadBucketObjects(bucketPath)
-
+			objects, numberOfObjects, err := loadBucketObjects(bucketPath)
+			if err != nil {
+				return nil, err
+			}
 			// Add the bucket to the buckets map as a pointer
 			buckets[bucketName] = &entities.Bucket{
 				Name:            bucketName,
-				CreationDate:    getFolderCreationTime(bucketPath),
 				NumberOfObjects: numberOfObjects,
-				Size:            totalSize,
 				Objects:         objects,
 			}
 		}
 	}
 
-	return &FileService{
-		buckets:          buckets,
-		BucketsDirectory: bucketsDir,
-	}
+	return buckets, nil
 }
 
 // loadBucketObjects loads all files (objects) in a bucket directory.
-func loadBucketObjects(bucketPath string) (map[string]entities.Object, int, int) {
+func loadBucketObjects(bucketPath string) (map[string]entities.Object, int, error) {
 	objects := make(map[string]entities.Object)
-	var totalSize int
 	var numberOfObjects int
 
 	err := filepath.Walk(bucketPath, func(path string, info os.FileInfo, err error) error {
@@ -88,162 +91,172 @@ func loadBucketObjects(bucketPath string) (map[string]entities.Object, int, int)
 
 			// Create an Object and add it to the map.
 			objects[relativeKey] = entities.Object{
-				Key:          relativeKey,
-				Size:         int(info.Size()),
-				LastModified: info.ModTime(),
-				Type:         fileType,
+				Key:  relativeKey,
+				Type: fileType,
 			}
 
 			// Update totals.
 			numberOfObjects++
-			totalSize += int(info.Size())
 		}
 		return nil
 	})
 
-	if err != nil {
-		panic("failed to load objects for bucket " + bucketPath + ": " + err.Error())
-	}
-
-	return objects, numberOfObjects, totalSize
+	return objects, numberOfObjects, err
 }
 
+// DONE
 // GetBucket retrieves a bucket by name, returning a pointer.
-func (fs *FileService) GetBucket(bucketName string) (*entities.Bucket, error) {
-	if bucket, ok := fs.buckets[bucketName]; ok {
-		return bucket, nil
+func (fs *FileService) GetBucket(bucketName string, listObjects bool, prefix string) (*entities.Bucket, error) {
+	buckets, err := scanBucketsDirectory(fs.BucketsDirectory)
+	if err != nil {
+		return nil, err
 	}
-	return nil, errors.New("bucket not found")
+	bucket, ok := buckets[bucketName]
+	if !ok {
+		return nil, errors.ErrBucketNotFound
+	}
+
+	if listObjects {
+		filteredObjects := filterObjects(bucket.Objects, prefix)
+		return &entities.Bucket{
+			Name:            bucket.Name,
+			NumberOfObjects: len(filteredObjects),
+			Objects:         filteredObjects,
+		}, nil
+	} else {
+		return &entities.Bucket{
+			Name:            bucket.Name,
+			NumberOfObjects: bucket.NumberOfObjects,
+			Objects:         nil,
+		}, nil
+	}
 }
 
+// DONE
 // CreateBucket creates a new bucket.
-func (fs *FileService) CreateBucket(bucket entities.Bucket) error {
-	if _, exists := fs.buckets[bucket.Name]; exists {
-		return errors.New("bucket already exists")
+func (fs *FileService) CreateBucket(bucketName string) error {
+	buckets, err := scanBucketsDirectory(fs.BucketsDirectory)
+	if err != nil {
+		return err
+	}
+
+	if _, exists := buckets[bucketName]; exists {
+		return errors.ErrBucketAlreadyExists
 	}
 
 	// Create the bucket directory in the filesystem.
-	bucketPath := filepath.Join(fs.BucketsDirectory, bucket.Name)
-	err := os.MkdirAll(bucketPath, 0755)
+	bucketPath := filepath.Join(fs.BucketsDirectory, bucketName)
+	err = os.MkdirAll(bucketPath, 0755)
 	if err != nil {
-		return errors.New("failed to create bucket directory: " + err.Error())
+		return err
 	}
 
-	// Ensure the Objects map is initialized.
-	if bucket.Objects == nil {
-		bucket.Objects = make(map[string]entities.Object)
-	}
-
-	// Add the bucket pointer to the in-memory map.
-	fs.buckets[bucket.Name] = &bucket
 	return nil
 }
 
 // GetAllBucketsMetadata retrieves all buckets' metadata (without the objects).
-func (fs *FileService) GetAllBucketsMetadata() []*entities.Bucket {
-	bucketList := make([]*entities.Bucket, 0, len(fs.buckets))
-	for _, bucket := range fs.buckets {
+func (fs *FileService) GetAllBucketsMetadata() ([]*entities.Bucket, error) {
+	buckets, err := scanBucketsDirectory(fs.BucketsDirectory)
+	if err != nil {
+		return nil, err
+	}
+	bucketList := make([]*entities.Bucket, 0, len(buckets))
+	for _, bucket := range buckets {
 		// Create a shallow copy of bucket metadata without the objects.
 		metadata := entities.Bucket{
 			Name:            bucket.Name,
-			CreationDate:    bucket.CreationDate,
 			NumberOfObjects: bucket.NumberOfObjects,
-			Size:            bucket.Size,
 			// Omit the Objects field.
 		}
 		bucketList = append(bucketList, &metadata)
 	}
-	return bucketList
+	return bucketList, nil
 }
 
+// DONE
 // DeleteBucket deletes a bucket.
 func (fs *FileService) DeleteBucket(bucketName string) error {
+	buckets, err := scanBucketsDirectory(fs.BucketsDirectory)
+	if err != nil {
+		return err
+	}
+
+	bucket, ok := buckets[bucketName]
+	if !ok {
+		return errors.ErrBucketNotFound
+	}
+
+	if bucket.NumberOfObjects > 0 {
+		return errors.ErrBucketNotEmpty
+	}
+
 	// Delete the bucket directory from the file system.
 	bucketPath := filepath.Join(fs.BucketsDirectory, bucketName)
 	if err := os.RemoveAll(bucketPath); err != nil {
-		return errors.New("failed to delete bucket directory: " + err.Error())
+		return err
 	}
 
-	// Delete the bucket from the in-memory map.
-	delete(fs.buckets, bucketName)
 	return nil
 }
 
+// DONE
 // AddOrUpdateObject adds or updates (if exists) an object in a bucket.
 func (fs *FileService) AddOrUpdateObject(bucketName string, objectKey string, file io.Reader) error {
-	bucket, ok := fs.buckets[bucketName]
+	buckets, err := scanBucketsDirectory(fs.BucketsDirectory)
+	if err != nil {
+		return err
+	}
+
+	_, ok := buckets[bucketName]
 	if !ok {
-		return errors.New("bucket not found")
+		return errors.ErrBucketNotFound
 	}
 
 	// Create the directory for the object if it doesn't exist.
 	objectPath := filepath.Join(fs.BucketsDirectory, bucketName, objectKey)
 	objectDir := filepath.Dir(objectPath)
 	if err := os.MkdirAll(objectDir, 0755); err != nil {
-		return errors.New("failed to create object directory: " + err.Error())
+		return err
 	}
 
 	// Open the destination file for writing (replace if it exists).
 	destFile, err := os.Create(objectPath)
 	if err != nil {
-		return errors.New("failed to create object file: " + err.Error())
+		return err
 	}
-	defer func() {
-		if err := destFile.Close(); err != nil {
-			panic("failed to close object file: " + err.Error())
-		}
-	}()
+
+	defer destFile.Close()
 
 	// Copy the uploaded file to the destination file.
 	if _, err := io.Copy(destFile, file); err != nil {
-		return errors.New("failed to copy object file: " + err.Error())
+		return err
 	}
-
-	// Get file info.
-	fileInfo, err := os.Stat(objectPath)
-	if err != nil {
-		return errors.New("failed to stat object file: " + err.Error())
-	}
-
-	size := fileInfo.Size()
-	lastModified := fileInfo.ModTime()
-
-	// If the object already exists, adjust the bucket size.
-	if existingObject, exists := bucket.Objects[objectKey]; exists {
-		bucket.Size -= existingObject.Size
-	}
-
-	// Add or update the object in the map.
-	bucket.Objects[objectKey] = entities.Object{
-		Key:          objectKey,
-		Size:         int(size),
-		LastModified: lastModified,
-		Type:         filepath.Ext(objectKey),
-	}
-
-	// Update bucket metadata.
-	bucket.NumberOfObjects = len(bucket.Objects)
-	bucket.Size += int(size)
 
 	return nil
 }
 
 // GetObject retrieves the object's metadata from the in-memory map.
 func (fs *FileService) GetObject(bucketName, objectKey string) (*entities.Object, error) {
-	bucket, ok := fs.buckets[bucketName]
-	if !ok {
-		return nil, errors.New("bucket not found")
+
+	buckets, err := scanBucketsDirectory(fs.BucketsDirectory)
+	if err != nil {
+		return nil, err
 	}
 
+	bucket, ok := buckets[bucketName]
+	if !ok {
+		return nil, errors.ErrBucketNotFound
+	}
 	obj, exists := bucket.Objects[objectKey]
 	if !exists {
-		return nil, errors.New("object not found")
+		return nil, errors.ErrObjectNotFound
 	}
 
 	// Return the address of the object copy.
 	return &obj, nil
 }
 
+// DONE
 // GetObjectFilePath returns the absolute path of the object file on disk.
 func (fs *FileService) GetObjectFilePath(bucketName, objectKey string) (string, error) {
 	// Build the path.
@@ -252,7 +265,7 @@ func (fs *FileService) GetObjectFilePath(bucketName, objectKey string) (string, 
 	// Check if file exists.
 	info, err := os.Stat(objectPath)
 	if os.IsNotExist(err) || info.IsDir() {
-		return "", errors.New("object file not found or is a directory")
+		return "", errors.ErrObjectNotFound
 	} else if err != nil {
 		return "", err
 	}
@@ -260,16 +273,22 @@ func (fs *FileService) GetObjectFilePath(bucketName, objectKey string) (string, 
 	return objectPath, nil
 }
 
-// RemoveObject deletes an object file from disk and updates in-memory metadata.
+// Done
+// RemoveObject deletes an object file from disk.
 func (fs *FileService) RemoveObject(bucketName, objectKey string) error {
-	bucket, ok := fs.buckets[bucketName]
-	if !ok {
-		return errors.New("bucket not found")
+	buckets, err := scanBucketsDirectory(fs.BucketsDirectory)
+	if err != nil {
+		return err
 	}
 
-	obj, exists := bucket.Objects[objectKey]
+	bucket, ok := buckets[bucketName]
+	if !ok {
+		return errors.ErrBucketNotFound
+	}
+
+	_, exists := bucket.Objects[objectKey]
 	if !exists {
-		return errors.New("object not found")
+		return errors.ErrObjectNotFound
 	}
 
 	// Construct the file path on disk.
@@ -278,53 +297,47 @@ func (fs *FileService) RemoveObject(bucketName, objectKey string) error {
 		return err
 	}
 
-	// Update bucket metadata.
-	bucket.Size -= obj.Size
-	delete(bucket.Objects, objectKey)
-	bucket.NumberOfObjects = len(bucket.Objects)
 	return nil
 }
 
+// DONE
 // RemoveObjects deletes all objects in the specified bucket whose keys start with the given prefix.
-func (fs *FileService) RemoveObjects(bucketName, prefix string) ([]entities.Object, error) {
-	bucket, ok := fs.buckets[bucketName]
+func (fs *FileService) RemoveObjects(bucketName, prefix string) error {
+	buckets, err := scanBucketsDirectory(fs.BucketsDirectory)
+	if err != nil {
+		return err
+	}
+	bucket, ok := buckets[bucketName]
 	if !ok {
-		return nil, errors.New("bucket not found")
+		return errors.ErrBucketNotFound
 	}
 
-	var removedObjects []entities.Object
-
 	// Iterate over a copy of the keys to avoid modifying the map during iteration.
-	for key, obj := range bucket.Objects {
+	for key, _ := range bucket.Objects {
 		if strings.HasPrefix(key, prefix) {
 			// Construct the absolute path of the object file.
 			objectPath := filepath.Join(fs.BucketsDirectory, bucketName, key)
 
 			// Remove the file from disk.
 			if err := os.Remove(objectPath); err != nil && !os.IsNotExist(err) {
-				return nil, errors.New("failed to remove object " + key + ": " + err.Error())
+				return err
 			}
-
-			// Append the object to the list of removed objects.
-			removedObjects = append(removedObjects, obj)
-
-			// Update bucket metadata.
-			bucket.Size -= obj.Size
-			delete(bucket.Objects, key)
 		}
 	}
 
-	// Update the number of objects in the bucket.
-	bucket.NumberOfObjects = len(bucket.Objects)
-
-	return removedObjects, nil
+	return nil
 }
 
-// getFolderCreationTime retrieves the creation time of a folder (approximation using mod time).
-func getFolderCreationTime(folderPath string) time.Time {
-	info, err := os.Stat(folderPath)
-	if err != nil {
-		return time.Now()
+// filterObjects filters objects based on the prefix.
+func filterObjects(objects map[string]entities.Object, prefix string) map[string]entities.Object {
+	filtered := make(map[string]entities.Object)
+	if objects == nil {
+		return filtered
 	}
-	return info.ModTime()
+	for key, obj := range objects {
+		if prefix == "" || strings.HasPrefix(obj.Key, prefix) {
+			filtered[key] = obj
+		}
+	}
+	return filtered
 }

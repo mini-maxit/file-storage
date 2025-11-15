@@ -2,16 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
-	"time"
-
-	"mime/multipart"
 
 	"github.com/mini-maxit/file-storage/internal/api/http/middleware"
 	"github.com/mini-maxit/file-storage/internal/api/services"
 	"github.com/mini-maxit/file-storage/internal/logger"
-	"github.com/mini-maxit/file-storage/pkg/filestorage/entities"
+	customErrors "github.com/mini-maxit/file-storage/pkg/filestorage"
 	"go.uber.org/zap"
 )
 
@@ -34,7 +32,12 @@ func (s *Server) Run(addr string) error {
 // listBucketsHandler -> GET /buckets
 func listBucketsHandler(fs *services.FileService, w http.ResponseWriter, log *zap.SugaredLogger) {
 	log.Info("Listing all buckets")
-	buckets := fs.GetAllBucketsMetadata()
+	buckets, err := fs.GetAllBucketsMetadata()
+	if err != nil {
+		log.Errorf("Failed to list buckets: %v", err)
+		http.Error(w, "Failed to list buckets", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -46,9 +49,7 @@ func listBucketsHandler(fs *services.FileService, w http.ResponseWriter, log *za
 
 // createBucketHandler -> POST /buckets
 func createBucketHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, log *zap.SugaredLogger) {
-	var request struct {
-		Name string `json:"name"`
-	}
+	var request CreateBucketRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Name == "" {
 		log.Warn("Invalid request body for bucket creation")
 		http.Error(w, "Invalid request body. 'name' is required.", http.StatusBadRequest)
@@ -56,117 +57,77 @@ func createBucketHandler(fs *services.FileService, w http.ResponseWriter, r *htt
 	}
 	bucketName := request.Name
 
-	// Check if the bucket already exists
-	if _, err := fs.GetBucket(bucketName); err == nil {
-		log.Warnf("Bucket %s already exists", bucketName)
-		http.Error(w, "Bucket already exists.", http.StatusConflict)
-		return
-	}
-
-	newBucket := entities.Bucket{
-		Name:         bucketName,
-		CreationDate: time.Now(),
-	}
-
-	if err := fs.CreateBucket(newBucket); err != nil {
+	err := fs.CreateBucket(bucketName)
+	if err != nil {
 		log.Errorf("Failed to create bucket %s: %v", bucketName, err)
-		http.Error(w, "Failed to create bucket.", http.StatusInternalServerError)
+		if errors.Is(err, customErrors.ErrBucketAlreadyExists) {
+			http.Error(w, customErrors.ErrBucketAlreadyExists.Error(), http.StatusConflict)
+			return
+		}
+		http.Error(w, customErrors.ErrFailedToCreateBucket.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	log.Infof("Bucket %s created successfully", bucketName)
 	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(newBucket); err != nil {
-		log.Errorf("Failed to encode new bucket response: %v", err)
-	}
 }
 
 // getBucketHandler -> GET /buckets/{bucketName}
 func getBucketHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName string, log *zap.SugaredLogger) {
 	log.Infof("Getting bucket info for %s", bucketName)
-	bucket, err := fs.GetBucket(bucketName)
-	if err != nil {
-		log.Warnf("Bucket %s not found", bucketName)
-		http.Error(w, "Bucket not found", http.StatusNotFound)
-		return
-	}
-
 	query := r.URL.Query()
 	listObjects := query.Get("listObjects") == "true"
 	prefix := query.Get("prefix")
 
-	if listObjects {
-		filteredObjects := filterObjects(bucket.Objects, prefix)
-		response := struct {
-			Name            string            `json:"name"`
-			CreationDate    time.Time         `json:"creationDate"`
-			NumberOfObjects int               `json:"numberOfObjects"`
-			Size            int               `json:"size"`
-			Objects         []entities.Object `json:"objects"`
-		}{
-			Name:            bucket.Name,
-			CreationDate:    bucket.CreationDate,
-			NumberOfObjects: len(filteredObjects),
-			Size:            bucket.Size,
-			Objects:         filteredObjects,
-		}
+	bucket, err := fs.GetBucket(bucketName, listObjects, prefix)
+	if err != nil {
+		log.Warnf("Failed to get bucket %s: %v", bucketName, err)
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			log.Errorf("Failed to encode bucket objects response: %v", err)
-		}
-	} else {
-		partialBucket := struct {
-			Name            string    `json:"name"`
-			CreationDate    time.Time `json:"creationDate"`
-			NumberOfObjects int       `json:"numberOfObjects"`
-			Size            int       `json:"size"`
-		}{
-			Name:            bucket.Name,
-			CreationDate:    bucket.CreationDate,
-			NumberOfObjects: bucket.NumberOfObjects,
-			Size:            bucket.Size,
-		}
-
-		w.WriteHeader(http.StatusOK)
-		if err := json.NewEncoder(w).Encode(partialBucket); err != nil {
-			log.Errorf("Failed to encode bucket response: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Header().Add("Content-Type", "text/plain")
-			w.Write([]byte("Failed to encode response"))
+		if errors.Is(err, customErrors.ErrBucketNotFound) {
+			http.Error(w, customErrors.ErrBucketNotFound.Error(), http.StatusNotFound)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, customErrors.ErrFailedToGetBucket.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := GetBucketResponse{
+		Name:            bucket.Name,
+		NumberOfObjects: bucket.NumberOfObjects,
+		Objects:         bucket.Objects,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Errorf("Failed to encode bucket response: %v", err)
+		http.Error(w, customErrors.ErrFailedToEncodeResponse.Error(), http.StatusInternalServerError)
+		return
 	}
 }
 
 // deleteBucketHandler -> DELETE /buckets/{bucketName}
 func deleteBucketHandler(fs *services.FileService, w http.ResponseWriter, bucketName string, log *zap.SugaredLogger) {
 	log.Infof("Deleting bucket %s", bucketName)
-	bucket, err := fs.GetBucket(bucketName)
-	if err != nil {
-		log.Warnf("Bucket %s not found", bucketName)
-		http.Error(w, "Bucket not found", http.StatusNotFound)
-		return
-	}
-
-	if bucket.NumberOfObjects > 0 {
-		log.Warnf("Bucket %s is not empty", bucketName)
-		http.Error(w, "Bucket is not empty", http.StatusBadRequest)
-		return
-	}
-
 	if err := fs.DeleteBucket(bucketName); err != nil {
 		log.Errorf("Failed to delete bucket %s: %v", bucketName, err)
+		if errors.Is(err, customErrors.ErrBucketNotFound) {
+			http.Error(w, customErrors.ErrBucketNotFound.Error(), http.StatusNotFound)
+			return
+		}
+
+		if errors.Is(err, customErrors.ErrBucketNotEmpty) {
+			http.Error(w, customErrors.ErrBucketNotEmpty.Error(), http.StatusConflict)
+			return
+		}
+
 		http.Error(w, "Failed to delete bucket: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	log.Infof("Bucket %s deleted successfully", bucketName)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("Bucket deleted successfully"))
 }
 
 // uploadMultipleHandler -> POST /buckets/{bucketName}/upload-multiple?prefix=<prefix>
@@ -190,7 +151,6 @@ func uploadMultipleHandler(fs *services.FileService, w http.ResponseWriter, r *h
 		return
 	}
 
-	uploadedFiles := make([]string, 0, len(fileHeaders))
 	for _, fh := range fileHeaders {
 		file, err := fh.Open()
 		if err != nil {
@@ -199,36 +159,27 @@ func uploadMultipleHandler(fs *services.FileService, w http.ResponseWriter, r *h
 			return
 		}
 
-		func(f multipart.File, filename string) {
-			defer func(f multipart.File) {
-				if err := f.Close(); err != nil {
-					log.Errorf("Failed to close file %s: %v", filename, err)
-				}
-			}(f)
-			objectKey := prefix + filename
-			if err := fs.AddOrUpdateObject(bucketName, objectKey, f); err != nil {
-				log.Errorf("Failed to upload file %s to bucket %s: %v", filename, bucketName, err)
-				http.Error(w, "Failed to upload file "+filename+": "+err.Error(), http.StatusInternalServerError)
-				return
+		objectKey := prefix + fh.Filename
+		if err := fs.AddOrUpdateObject(bucketName, objectKey, file); err != nil {
+			// Ensure file is closed on error
+			if cerr := file.Close(); cerr != nil {
+				log.Errorf("Failed to close file %s after upload error: %v", fh.Filename, cerr)
 			}
-			log.Infof("Uploaded file %s as object %s", filename, objectKey)
-			uploadedFiles = append(uploadedFiles, objectKey)
-		}(file, fh.Filename)
-	}
+			log.Errorf("Failed to upload file %s to bucket %s: %v", fh.Filename, bucketName, err)
+			http.Error(w, "Failed to upload file "+fh.Filename+": "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-	response := struct {
-		Message string   `json:"message"`
-		Files   []string `json:"files"`
-	}{
-		Message: "Files uploaded successfully",
-		Files:   uploadedFiles,
+		// Close file after successful upload
+		if cerr := file.Close(); cerr != nil {
+			log.Errorf("Failed to close file %s: %v", fh.Filename, cerr)
+		}
+
+		log.Infof("Uploaded file %s as object %s", fh.Filename, objectKey)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Errorf("Failed to encode upload response: %v", err)
-	}
 }
 
 // removeMultipleHandler -> DELETE /buckets/{bucketName}/remove-multiple?prefix=<prefix>
@@ -239,26 +190,21 @@ func removeMultipleHandler(fs *services.FileService, w http.ResponseWriter, r *h
 		prefix = prefix + "/"
 	}
 
-	removedObjects, err := fs.RemoveObjects(bucketName, prefix)
+	err := fs.RemoveObjects(bucketName, prefix)
 	if err != nil {
 		log.Errorf("Failed to remove objects with prefix '%s' from bucket %s: %v", prefix, bucketName, err)
+
+		if errors.Is(err, customErrors.ErrBucketNotFound) {
+			http.Error(w, customErrors.ErrBucketNotFound.Error(), http.StatusNotFound)
+			return
+		}
+
 		http.Error(w, "Failed to remove objects: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	response := struct {
-		Message        string            `json:"message"`
-		RemovedObjects []entities.Object `json:"removedObjects"`
-	}{
-		Message:        "Objects removed successfully",
-		RemovedObjects: removedObjects,
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Errorf("Failed to encode remove objects response: %v", err)
-	}
 }
 
 // getObjectHandler -> GET /buckets/{bucketName}/{objectKey}
@@ -269,8 +215,17 @@ func getObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.R
 
 	obj, err := fs.GetObject(bucketName, objectKey)
 	if err != nil {
-		log.Warnf("Object %s not found in bucket %s", objectKey, bucketName)
-		http.Error(w, "Object not found", http.StatusNotFound)
+		log.Errorf("Failed to get object %s from bucket %s: %v", objectKey, bucketName, err)
+		if errors.Is(err, customErrors.ErrBucketNotFound) {
+			http.Error(w, customErrors.ErrBucketNotFound.Error(), http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, customErrors.ErrObjectNotFound) {
+			http.Error(w, customErrors.ErrObjectNotFound.Error(), http.StatusNotFound)
+			return
+		}
+
+		http.Error(w, customErrors.ErrFailedToGetObject.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -279,6 +234,8 @@ func getObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.R
 		w.WriteHeader(http.StatusOK)
 		if err := json.NewEncoder(w).Encode(obj); err != nil {
 			log.Errorf("Failed to encode object metadata: %v", err)
+			http.Error(w, customErrors.ErrFailedToEncodeResponse.Error(), http.StatusInternalServerError)
+			return
 		}
 		return
 	}
@@ -297,12 +254,6 @@ func getObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.R
 // putObjectHandler -> PUT /buckets/{bucketName}/{objectKey}
 func putObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.Request, bucketName, objectKey string, log *zap.SugaredLogger) {
 	log.Infof("Uploading/updating object %s in bucket %s", objectKey, bucketName)
-	_, err := fs.GetBucket(bucketName)
-	if err != nil {
-		log.Warnf("Bucket %s not found", bucketName)
-		http.Error(w, "Bucket not found", http.StatusNotFound)
-		return
-	}
 
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		log.Errorf("Failed to parse form data for object %s: %v", objectKey, err)
@@ -316,42 +267,43 @@ func putObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.R
 		http.Error(w, "File not provided", http.StatusBadRequest)
 		return
 	}
-	defer func(file multipart.File) {
+	defer func() {
 		if err := file.Close(); err != nil {
 			log.Errorf("Failed to close file for object %s: %v", objectKey, err)
 		}
-	}(file)
+	}()
 
 	if err := fs.AddOrUpdateObject(bucketName, objectKey, file); err != nil {
 		log.Errorf("Failed to update object %s in bucket %s: %v", objectKey, bucketName, err)
+
+		if errors.Is(err, customErrors.ErrBucketNotFound) {
+			http.Error(w, customErrors.ErrBucketNotFound.Error(), http.StatusNotFound)
+			return
+		}
+
 		http.Error(w, "Failed to update bucket metadata", http.StatusInternalServerError)
 		return
 	}
 
 	log.Infof("Object %s in bucket %s uploaded/updated successfully", objectKey, bucketName)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("Object uploaded or updated successfully"))
 }
 
 // deleteObjectHandler -> DELETE /buckets/{bucketName}/{objectKey}
 func deleteObjectHandler(fs *services.FileService, w http.ResponseWriter, bucketName, objectKey string, log *zap.SugaredLogger) {
 	log.Infof("Deleting object %s from bucket %s", objectKey, bucketName)
-	_, err := fs.GetBucket(bucketName)
-	if err != nil {
-		log.Warnf("Bucket %s not found", bucketName)
-		http.Error(w, "Bucket not found", http.StatusNotFound)
-		return
-	}
-
-	_, err = fs.GetObject(bucketName, objectKey)
-	if err != nil {
-		log.Warnf("Object %s not found in bucket %s", objectKey, bucketName)
-		http.Error(w, "Object not found", http.StatusNotFound)
-		return
-	}
 
 	if err := fs.RemoveObject(bucketName, objectKey); err != nil {
 		log.Errorf("Failed to delete object %s from bucket %s: %v", objectKey, bucketName, err)
+
+		if errors.Is(err, customErrors.ErrBucketNotFound) {
+			http.Error(w, customErrors.ErrBucketNotFound.Error(), http.StatusNotFound)
+			return
+		}
+
+		if errors.Is(err, customErrors.ErrObjectNotFound) {
+			http.Error(w, customErrors.ErrObjectNotFound.Error(), http.StatusNotFound)
+		}
 		http.Error(w, "Failed to delete object", http.StatusInternalServerError)
 		return
 	}
@@ -441,15 +393,4 @@ func NewServer(fs *services.FileService, appLog *zap.SugaredLogger) *Server {
 		mux:    loggedMux,
 		logger: appLog,
 	}
-}
-
-// filterObjects filters objects based on the prefix.
-func filterObjects(objects map[string]entities.Object, prefix string) []entities.Object {
-	var filtered []entities.Object
-	for _, obj := range objects {
-		if prefix == "" || strings.HasPrefix(obj.Key, prefix) {
-			filtered = append(filtered, obj)
-		}
-	}
-	return filtered
 }
