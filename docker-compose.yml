@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  file-storage:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8888:8888"
+    image: file-storage
+    pull_policy: never
+    volumes:
+      - file-storage-media:/app/file-storage-media
+
+volumes:
+  file-storage-media:

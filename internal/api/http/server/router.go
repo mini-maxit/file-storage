@@ -69,7 +69,6 @@ func createBucketHandler(fs *services.FileService, w http.ResponseWriter, r *htt
 	}
 
 	log.Infof("Bucket %s created successfully", bucketName)
-	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -127,7 +126,7 @@ func deleteBucketHandler(fs *services.FileService, w http.ResponseWriter, bucket
 	}
 
 	log.Infof("Bucket %s deleted successfully", bucketName)
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // uploadMultipleHandler -> POST /buckets/{bucketName}/upload-multiple?prefix=<prefix>
@@ -177,9 +176,7 @@ func uploadMultipleHandler(fs *services.FileService, w http.ResponseWriter, r *h
 
 		log.Infof("Uploaded file %s as object %s", fh.Filename, objectKey)
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusCreated)
 }
 
 // removeMultipleHandler -> DELETE /buckets/{bucketName}/remove-multiple?prefix=<prefix>
@@ -203,8 +200,7 @@ func removeMultipleHandler(fs *services.FileService, w http.ResponseWriter, r *h
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // getObjectHandler -> GET /buckets/{bucketName}/{objectKey}
@@ -286,7 +282,7 @@ func putObjectHandler(fs *services.FileService, w http.ResponseWriter, r *http.R
 	}
 
 	log.Infof("Object %s in bucket %s uploaded/updated successfully", objectKey, bucketName)
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // deleteObjectHandler -> DELETE /buckets/{bucketName}/{objectKey}
