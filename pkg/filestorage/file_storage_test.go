@@ -465,3 +465,63 @@ func TestDeleteMultipleFiles(t *testing.T) {
 		t.Fatalf("Failed to delete multiple files: %v", err)
 	}
 }
+
+func TestGetSignedFileURL(t *testing.T) {
+	config := filestorage.FileStorageConfig{
+		URL: "https://example.com",
+	}
+	storage, err := filestorage.NewFileStorage(config)
+	if err != nil {
+		t.Fatalf("Failed to create file storage: %v", err)
+	}
+
+	bucketName := "test-bucket"
+	objectKey := "test-file.pdf"
+	ttl := 1 * time.Hour
+	signingSecret := "test-secret-key"
+
+	signedURL, err := storage.GetSignedFileURL(bucketName, objectKey, ttl, signingSecret)
+	if err != nil {
+		t.Fatalf("Failed to generate signed URL: %v", err)
+	}
+
+	// Verify the signed URL contains the base URL
+	if !strings.Contains(signedURL, config.URL) {
+		t.Errorf("Signed URL should contain base URL %s, got %s", config.URL, signedURL)
+	}
+
+	// Verify the signed URL contains expires and signature parameters
+	if !strings.Contains(signedURL, "expires=") {
+		t.Error("Signed URL should contain expires parameter")
+	}
+
+	if !strings.Contains(signedURL, "signature=") {
+		t.Error("Signed URL should contain signature parameter")
+	}
+
+	// Verify the path is correct
+	expectedPath := fmt.Sprintf("/buckets/%s/%s", bucketName, objectKey)
+	if !strings.Contains(signedURL, expectedPath) {
+		t.Errorf("Signed URL should contain path %s", expectedPath)
+	}
+}
+
+func TestGetSignedFileURL_EmptySecret(t *testing.T) {
+	config := filestorage.FileStorageConfig{
+		URL: "https://example.com",
+	}
+	storage, err := filestorage.NewFileStorage(config)
+	if err != nil {
+		t.Fatalf("Failed to create file storage: %v", err)
+	}
+
+	bucketName := "test-bucket"
+	objectKey := "test-file.pdf"
+	ttl := 1 * time.Hour
+
+	_, err = storage.GetSignedFileURL(bucketName, objectKey, ttl, "")
+	if err == nil {
+		t.Error("Expected error for empty signing secret")
+	}
+}
+

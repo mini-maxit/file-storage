@@ -33,10 +33,10 @@ func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigne
 					return
 				}
 				log.Debugf("Signature validated successfully for %s", r.URL.Path)
-			} else if !metadataOnly {
-				// If no signature is provided and it's not metadata-only, require signature
-				log.Warnf("Missing signature for file access: %s", r.URL.Path)
-				http.Error(w, "Forbidden: signature required for file access", http.StatusForbidden)
+			} else if !metadataOnly && isPDFFile(r.URL.Path) {
+				// Only require signatures for PDF file downloads (not metadata)
+				log.Warnf("Missing signature for PDF file access: %s", r.URL.Path)
+				http.Error(w, "Forbidden: signature required for PDF file access", http.StatusForbidden)
 				return
 			}
 		}
@@ -65,4 +65,9 @@ func isObjectEndpoint(path string) bool {
 	}
 	
 	return false
+}
+
+// isPDFFile checks if the path ends with .pdf extension
+func isPDFFile(path string) bool {
+	return strings.HasSuffix(strings.ToLower(path), ".pdf")
 }
