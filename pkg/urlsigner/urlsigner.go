@@ -46,10 +46,7 @@ func (s *URLSigner) SignURL(path string, ttl time.Duration) (string, error) {
 	values.Set("signature", signature)
 
 	// Return path with query parameters
-	if len(values) > 0 {
-		return fmt.Sprintf("%s?%s", path, values.Encode()), nil
-	}
-	return path, nil
+	return fmt.Sprintf("%s?%s", path, values.Encode()), nil
 }
 
 // ValidateSignedURL validates a signed URL

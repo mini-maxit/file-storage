@@ -41,8 +41,10 @@ func NewConfig() *Config {
 
 	signingSecret := os.Getenv("SIGNING_SECRET")
 	if signingSecret == "" {
-		log.Println("Warning: SIGNING_SECRET not set. Signed URLs will not work securely.")
-		signingSecret = "insecure-default-secret-please-change"
+		log.Println("ERROR: SIGNING_SECRET not set. This is a security risk!")
+		log.Println("Please set SIGNING_SECRET environment variable for secure signed URL support.")
+		log.Println("Using insecure default for development only - DO NOT USE IN PRODUCTION")
+		signingSecret = "insecure-default-secret-change-this-immediately"
 	}
 
 	return &Config{

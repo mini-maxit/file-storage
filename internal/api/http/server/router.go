@@ -22,7 +22,7 @@ type Server struct {
 	logger *zap.SugaredLogger
 }
 
-// ServeHTTP implements http.Handler interface, allowing Server to be used in tests
+// ServeHTTP implements http.Handler interface for the Server
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
