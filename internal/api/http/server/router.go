@@ -22,6 +22,11 @@ type Server struct {
 	logger *zap.SugaredLogger
 }
 
+// ServeHTTP implements http.Handler interface, allowing Server to be used in tests
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mux.ServeHTTP(w, r)
+}
+
 // Run starts the HTTP server.
 func (s *Server) Run(addr string) error {
 	s.logger.Infof("Server is running on %s", addr)
