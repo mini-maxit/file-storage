@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mini-maxit/file-storage/pkg/filestorage/entities"
+	"github.com/mini-maxit/file-storage/pkg/urlsigner"
 )
 
 type FileStorage interface {
@@ -30,6 +31,7 @@ type FileStorage interface {
 
 	GetFile(bucketName string, objectKey string) ([]byte, error)
 	GetFileURL(bucketName string, objectKey string) string
+	GetSignedFileURL(bucketName string, objectKey string, ttl time.Duration, signingSecret string) (string, error)
 	GetFileMetadata(bucketName string, objectKey string) (*entities.Object, error)
 	UploadFile(bucketName string, objectKey string, file *os.File) error
 	DeleteFile(bucketName string, objectKey string) error
@@ -447,6 +449,37 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 func (fs *fileStorage) GetFileURL(bucketName string, objectKey string) string {
 	apiPrefix := fmt.Sprintf("/buckets/%s/%s?metadataOnly=false", bucketName, objectKey)
 	return fs.config.URL + apiPrefix
+}
+
+// GetSignedFileURL returns a signed URL with expiration for accessing a file
+// bucketName: the name of the bucket
+// objectKey: the key/path of the object
+// ttl: time-to-live duration for the signed URL
+// signingSecret: the secret key used to sign the URL (must match server-side secret)
+func (fs *fileStorage) GetSignedFileURL(bucketName string, objectKey string, ttl time.Duration, signingSecret string) (string, error) {
+	if signingSecret == "" {
+		return "", errors.New("signing secret is required")
+	}
+
+	// Create the path for the object
+	apiPrefix := fmt.Sprintf("/buckets/%s/%s", bucketName, objectKey)
+	
+	// Create a URL signer with the provided secret
+	signer := urlsigner.NewURLSigner(signingSecret)
+	
+	// Sign the URL path
+	signedPath, err := signer.SignURL(apiPrefix, ttl)
+	if err != nil {
+		slog.Error("Error signing URL", "error", err)
+		return "", &ErrClient{
+			Message: "failed to sign URL",
+			Err:     err,
+			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey},
+		}
+	}
+
+	// Return the full URL with the signed path
+	return fs.config.URL + signedPath, nil
 }
 
 func (fs *fileStorage) GetFileMetadata(bucketName string, objectKey string) (*entities.Object, error) {

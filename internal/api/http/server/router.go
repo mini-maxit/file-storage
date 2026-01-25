@@ -12,6 +12,7 @@ import (
 	"github.com/mini-maxit/file-storage/internal/api/services"
 	"github.com/mini-maxit/file-storage/internal/logger"
 	"github.com/mini-maxit/file-storage/pkg/filestorage/entities"
+	"github.com/mini-maxit/file-storage/pkg/urlsigner"
 	"go.uber.org/zap"
 )
 
@@ -362,7 +363,7 @@ func deleteObjectHandler(fs *services.FileService, w http.ResponseWriter, bucket
 
 // NewServer sets up the routes, wraps the mux with HTTP logging middleware,
 // and returns the Server object.
-func NewServer(fs *services.FileService, appLog *zap.SugaredLogger) *Server {
+func NewServer(fs *services.FileService, signer *urlsigner.URLSigner, appLog *zap.SugaredLogger) *Server {
 	// Create the base mux for our file storage API endpoints.
 	mux := http.NewServeMux()
 
@@ -434,8 +435,9 @@ func NewServer(fs *services.FileService, appLog *zap.SugaredLogger) *Server {
 	// Retrieve an HTTP-specific logger.
 	httpLog := logger.NewHttpLogger()
 
-	// Wrap our mux with HTTP logging middleware.
-	loggedMux := middleware.LoggingMiddleware(mux, httpLog)
+	// Wrap our mux with signature validation middleware first, then logging
+	signedMux := middleware.SignatureValidationMiddleware(mux, signer, httpLog)
+	loggedMux := middleware.LoggingMiddleware(signedMux, httpLog)
 
 	return &Server{
 		mux:    loggedMux,

@@ -13,9 +13,11 @@ import (
 // It includes:
 //   - Port: the port on which the server will run (defaults to "8080").
 //   - RootDirectory: the directory where tasks/files will be stored (defaults to "tasks/").
+//   - SigningSecret: the secret key used for signing URLs (HMAC).
 type Config struct {
 	Port          string
 	RootDirectory string
+	SigningSecret string
 }
 
 // NewConfig loads the application's configuration from environment variables or sets defaults
@@ -37,8 +39,15 @@ func NewConfig() *Config {
 		rootDirectory = "file-storage-media"
 	}
 
+	signingSecret := os.Getenv("SIGNING_SECRET")
+	if signingSecret == "" {
+		log.Println("Warning: SIGNING_SECRET not set. Signed URLs will not work securely.")
+		signingSecret = "insecure-default-secret-please-change"
+	}
+
 	return &Config{
 		Port:          port,
 		RootDirectory: rootDirectory,
+		SigningSecret: signingSecret,
 	}
 }
