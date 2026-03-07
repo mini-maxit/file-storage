@@ -37,7 +37,7 @@ func main() {
 	log := logger.NewNamedLogger("server")
 
 	addr := ":" + _config.Port
-	_server := server.NewServer(fileService, signer, log)
+	_server := server.NewServer(fileService, signer, _config.InternalAPIKey, log)
 	err = _server.Run(addr)
 	if err != nil {
 		logrus.Fatalf("server stopped: %v", err)

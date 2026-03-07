@@ -368,7 +368,7 @@ func deleteObjectHandler(fs *services.FileService, w http.ResponseWriter, bucket
 
 // NewServer sets up the routes, wraps the mux with HTTP logging middleware,
 // and returns the Server object.
-func NewServer(fs *services.FileService, signer *urlsigner.URLSigner, appLog *zap.SugaredLogger) *Server {
+func NewServer(fs *services.FileService, signer *urlsigner.URLSigner, internalAPIKey string, appLog *zap.SugaredLogger) *Server {
 	// Create the base mux for our file storage API endpoints.
 	mux := http.NewServeMux()
 
@@ -441,7 +441,7 @@ func NewServer(fs *services.FileService, signer *urlsigner.URLSigner, appLog *za
 	httpLog := logger.NewHttpLogger()
 
 	// Wrap our mux with signature validation middleware first, then logging
-	signedMux := middleware.SignatureValidationMiddleware(mux, signer, httpLog)
+	signedMux := middleware.SignatureValidationMiddleware(mux, signer, internalAPIKey, httpLog)
 	loggedMux := middleware.LoggingMiddleware(signedMux, httpLog)
 
 	return &Server{

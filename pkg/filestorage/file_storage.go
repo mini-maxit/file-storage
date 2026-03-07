@@ -38,8 +38,9 @@ type FileStorage interface {
 }
 
 type FileStorageConfig struct {
-	URL     string
-	Version string // Currently not used, but can be used for versioning the storage API
+	URL            string
+	Version        string // Currently not used, but can be used for versioning the storage API
+	InternalAPIKey string // Sent as X-Internal-Key header on all write requests and internal reads
 }
 
 type fileStorage struct {
@@ -127,7 +128,21 @@ func (fs *fileStorage) CreateBucket(bucketName string) error {
 	}
 	body := bytes.NewReader(bytesBody)
 
-	resp, err := client.Post(apiURL, "application/json", body)
+	createReq, err := http.NewRequest(http.MethodPost, apiURL, body)
+	if err != nil {
+		slog.Error("Error creating bucket request", "error", err)
+		return &ErrClient{
+			Message: "failed to create bucket request",
+			Err:     err,
+			Context: map[string]any{"bucket_name": bucketName, "url": apiURL},
+		}
+	}
+	createReq.Header.Set("Content-Type", "application/json")
+	if fs.config.InternalAPIKey != "" {
+		createReq.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
+	}
+
+	resp, err := client.Do(createReq)
 	if err != nil {
 		slog.Error("Error creating bucket", "error", err)
 		return &ErrClient{
@@ -216,6 +231,9 @@ func (fs *fileStorage) DeleteBucket(bucketName string) error {
 			Err:     err,
 			Context: map[string]any{"bucket_name": bucketName, "method": "DELETE"},
 		}
+	}
+	if fs.config.InternalAPIKey != "" {
+		req.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -321,6 +339,9 @@ func (fs *fileStorage) UploadMultipleFiles(bucketName string, directoryPrefix st
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if fs.config.InternalAPIKey != "" {
+		req.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
+	}
 
 	// Make the request
 	resp, err := client.Do(req)
@@ -368,6 +389,9 @@ func (fs *fileStorage) DeleteMultipleFiles(bucketName string, directoryPrefix st
 			Context: map[string]any{"bucket_name": bucketName, "directory_prefix": directoryPrefix, "method": "DELETE"},
 		}
 	}
+	if fs.config.InternalAPIKey != "" {
+		req.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.Error("Error removing multiple files", "error", err)
@@ -405,7 +429,20 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	resp, err := client.Get(apiURL)
+	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
+	if err != nil {
+		slog.Error("Error creating get file request", "error", err)
+		return nil, &ErrClient{
+			Message: "failed to create get file request",
+			Err:     err,
+			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey},
+		}
+	}
+	if fs.config.InternalAPIKey != "" {
+		req.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		slog.Error("Error fetching file metadata", "error", err)
 		return nil, &ErrClient{
@@ -561,6 +598,9 @@ func (fs *fileStorage) UploadFile(bucketName string, objectKey string, file *os.
 
 	header := http.Header{}
 	header.Set("Content-Type", writer.FormDataContentType())
+	if fs.config.InternalAPIKey != "" {
+		header.Set("X-Internal-Key", fs.config.InternalAPIKey)
+	}
 	parsedURL, err := url.Parse(apiURL)
 	if err != nil {
 		slog.Error("Error parsing API URL", "error", err)
@@ -638,6 +678,9 @@ func (fs *fileStorage) DeleteFile(bucketName string, objectKey string) error {
 			Err:     err,
 			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey, "method": "DELETE"},
 		}
+	}
+	if fs.config.InternalAPIKey != "" {
+		req.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
 	}
 
 	resp, err := client.Do(req)

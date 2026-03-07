@@ -26,7 +26,7 @@ func TestSignatureValidationMiddleware_ValidSignature(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
 
 	// Sign a URL
 	path := "/buckets/test-bucket/test-file.pdf"
@@ -63,7 +63,7 @@ func TestSignatureValidationMiddleware_ExpiredSignature(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
 
 	// Sign a URL with negative TTL (already expired)
 	path := "/buckets/test-bucket/test-file.pdf"
@@ -100,7 +100,7 @@ func TestSignatureValidationMiddleware_InvalidSignature(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
 
 	// Create a URL with invalid signature
 	path := "/buckets/test-bucket/test-file.pdf"
@@ -135,7 +135,7 @@ func TestSignatureValidationMiddleware_MissingSignature(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
 
 	// Create a request without signature for a PDF file
 	path := "/buckets/test-bucket/test-file.pdf"
@@ -154,21 +154,21 @@ func TestSignatureValidationMiddleware_MissingSignature(t *testing.T) {
 func TestSignatureValidationMiddleware_MissingSignatureNonPDF(t *testing.T) {
 	// Create a test signer
 	signer := urlsigner.NewURLSigner("test-secret")
-	
+
 	// Create a test logger
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
 
-	// Create a simple handler that returns 200 OK
+	// Create a simple handler that should not be reached for files without signature
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called for file without signature")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
 
-	// Create a request without signature for a non-PDF file
+	// Create a request without signature for a non-PDF file (all files now require signature)
 	path := "/buckets/test-bucket/test-file.txt"
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	w := httptest.NewRecorder()
@@ -176,9 +176,9 @@ func TestSignatureValidationMiddleware_MissingSignatureNonPDF(t *testing.T) {
 	// Execute the middleware
 	middleware.ServeHTTP(w, req)
 
-	// Check that the request was successful (no signature required for non-PDF files)
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200 for non-PDF file, got %d", w.Code)
+	// Check that the request was forbidden (all files require a valid signature)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403 for file without signature, got %d", w.Code)
 	}
 }
 
@@ -197,7 +197,7 @@ func TestSignatureValidationMiddleware_MetadataOnlyRequest(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
 
 	// Create a metadata-only request (no signature required)
 	path := "/buckets/test-bucket/test-file.pdf?metadataOnly=true"
@@ -216,7 +216,38 @@ func TestSignatureValidationMiddleware_MetadataOnlyRequest(t *testing.T) {
 func TestSignatureValidationMiddleware_NonGetRequest(t *testing.T) {
 	// Create a test signer
 	signer := urlsigner.NewURLSigner("test-secret")
-	
+
+	// Create a test logger
+	logger, _ := zap.NewDevelopment()
+	sugaredLogger := logger.Sugar()
+
+	// Create a simple handler that should not be reached for writes without internal key
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called for write request without internal key")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Wrap the handler with the signature validation middleware (no internal key configured)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
+
+	// Create a PUT request without the internal key (write operations require the internal key)
+	path := "/buckets/test-bucket/test-file.pdf"
+	req := httptest.NewRequest(http.MethodPut, path, nil)
+	w := httptest.NewRecorder()
+
+	// Execute the middleware
+	middleware.ServeHTTP(w, req)
+
+	// Check that the request was forbidden (write requires internal key)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403 for PUT without internal key, got %d", w.Code)
+	}
+}
+
+func TestSignatureValidationMiddleware_NonGetRequestWithInternalKey(t *testing.T) {
+	// Create a test signer
+	signer := urlsigner.NewURLSigner("test-secret")
+
 	// Create a test logger
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
@@ -227,20 +258,49 @@ func TestSignatureValidationMiddleware_NonGetRequest(t *testing.T) {
 		w.Write([]byte("OK"))
 	})
 
-	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
+	internalKey := "test-internal-key"
+	middleware := SignatureValidationMiddleware(nextHandler, signer, internalKey, sugaredLogger)
 
-	// Create a PUT request (signature validation only applies to GET)
+	// Create a PUT request with the internal key
 	path := "/buckets/test-bucket/test-file.pdf"
 	req := httptest.NewRequest(http.MethodPut, path, nil)
+	req.Header.Set("X-Internal-Key", internalKey)
 	w := httptest.NewRecorder()
 
-	// Execute the middleware
 	middleware.ServeHTTP(w, req)
 
-	// Check that the request was successful (no signature required for non-GET)
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200 for PUT request, got %d", w.Code)
+		t.Errorf("Expected status 200 for PUT with internal key, got %d", w.Code)
+	}
+}
+
+func TestSignatureValidationMiddleware_GetWithInternalKey(t *testing.T) {
+	// Create a test signer
+	signer := urlsigner.NewURLSigner("test-secret")
+
+	// Create a test logger
+	logger, _ := zap.NewDevelopment()
+	sugaredLogger := logger.Sugar()
+
+	// Create a simple handler that returns 200 OK
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	internalKey := "test-internal-key"
+	middleware := SignatureValidationMiddleware(nextHandler, signer, internalKey, sugaredLogger)
+
+	// GET with internal key bypasses signature requirement
+	path := "/buckets/test-bucket/test-file.txt"
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("X-Internal-Key", internalKey)
+	w := httptest.NewRecorder()
+
+	middleware.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200 for GET with internal key, got %d", w.Code)
 	}
 }
 
@@ -259,7 +319,7 @@ func TestSignatureValidationMiddleware_NonObjectEndpoint(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
 
 	// Create a request to a non-object endpoint (e.g., bucket listing)
 	path := "/buckets/test-bucket"
@@ -299,26 +359,3 @@ func TestIsObjectEndpoint(t *testing.T) {
 	}
 }
 
-func TestIsPDFFile(t *testing.T) {
-	tests := []struct {
-		path     string
-		expected bool
-	}{
-		{"/buckets/test-bucket/test-file.pdf", true},
-		{"/buckets/test-bucket/test-file.PDF", true},
-		{"/buckets/test-bucket/folder/document.pdf", true},
-		{"/buckets/test-bucket/test-file.txt", false},
-		{"/buckets/test-bucket/image.jpg", false},
-		{"/buckets/test-bucket/archive.zip", false},
-		{"/buckets/test-bucket/pdffile", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			result := isPDFFile(tt.path)
-			if result != tt.expected {
-				t.Errorf("isPDFFile(%s) = %v, expected %v", tt.path, result, tt.expected)
-			}
-		})
-	}
-}

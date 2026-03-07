@@ -40,7 +40,7 @@ func TestSignedURLIntegration(t *testing.T) {
 	log := logger.NewNamedLogger("test")
 
 	// Create server
-	srv := server.NewServer(fileService, signer, log)
+	srv := server.NewServer(fileService, signer, "test-internal-key", log)
 
 	// Create a test bucket
 	createBucket(t, srv, "test-bucket")
@@ -131,7 +131,7 @@ func TestSignedURLIntegration(t *testing.T) {
 		}
 	})
 
-	// Test 6: Non-PDF file should work without signature
+	// Test 6: All files require a signature — non-PDF files are no exception
 	t.Run("NonPDFWithoutSignature", func(t *testing.T) {
 		uploadFile(t, srv, "test-bucket", "test.txt", []byte("Text content"))
 
@@ -141,8 +141,8 @@ func TestSignedURLIntegration(t *testing.T) {
 
 		srv.ServeHTTP(w, req)
 
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected 200 for non-PDF file, got %d: %s", w.Code, w.Body.String())
+		if w.Code != http.StatusForbidden {
+			t.Errorf("Expected 403 for non-PDF file without signature, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }
@@ -152,6 +152,7 @@ func createBucket(t *testing.T, srv http.Handler, bucketName string) {
 	body := fmt.Sprintf(`{"name":"%s"}`, bucketName)
 	req := httptest.NewRequest(http.MethodPost, "/buckets", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Key", "test-internal-key")
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, req)
@@ -186,6 +187,7 @@ func uploadFile(t *testing.T, srv http.Handler, bucketName, fileName string, con
 	url := fmt.Sprintf("/buckets/%s/%s", bucketName, fileName)
 	req := httptest.NewRequest(http.MethodPut, url, &b)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Internal-Key", "test-internal-key")
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, req)

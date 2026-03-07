@@ -9,14 +9,19 @@ import (
 )
 
 // SignatureValidationMiddleware validates signed URLs for GET requests to object endpoints
-func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigner, log *zap.SugaredLogger) http.Handler {
+// and enforces that non-GET (write) operations carry the internal API key.
+func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigner, internalAPIKey string, log *zap.SugaredLogger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Only validate GET requests to object endpoints (not metadata-only requests)
-		// Pattern: /buckets/{bucketName}/{objectKey}
 		if r.Method == http.MethodGet && isObjectEndpoint(r.URL.Path) {
+			// Internal services bypass signature enforcement entirely.
+			if internalAPIKey != "" && r.Header.Get("X-Internal-Key") == internalAPIKey {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			query := r.URL.Query()
 
-			// Metadata-only requests bypass all signature enforcement
+			// Metadata-only requests bypass signature enforcement.
 			if strings.ToLower(query.Get("metadataOnly")) == "true" {
 				next.ServeHTTP(w, r)
 				return
@@ -33,40 +38,38 @@ func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigne
 					return
 				}
 				log.Debugf("Signature validated successfully for %s", r.URL.Path)
-			} else if isPDFFile(r.URL.Path) {
-				log.Warnf("Missing signature for PDF file access: %s", r.URL.Path)
-				http.Error(w, "Forbidden: signature required for PDF file access", http.StatusForbidden)
+			} else {
+				log.Warnf("Missing signature for file access: %s", r.URL.Path)
+				http.Error(w, "Forbidden: signature required for file access", http.StatusForbidden)
+				return
+			}
+		} else if r.Method != http.MethodGet {
+			// All write operations require the internal API key.
+			if internalAPIKey == "" || r.Header.Get("X-Internal-Key") != internalAPIKey {
+				log.Warnf("Unauthorized write attempt to %s %s", r.Method, r.URL.Path)
+				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
 		}
 
-		// Continue with the next handler
 		next.ServeHTTP(w, r)
 	})
 }
 
-// isObjectEndpoint checks if the path is an object endpoint
+// isObjectEndpoint checks if the path is an object endpoint.
 // Pattern: /buckets/{bucketName}/{objectKey}
 func isObjectEndpoint(path string) bool {
-	// Remove leading slash
 	path = strings.TrimPrefix(path, "/")
-	
-	// Split by /
 	parts := strings.SplitN(path, "/", 3)
-	
+
 	// Must have at least 3 parts: buckets, bucketName, objectKey
 	// and the first part must be "buckets"
 	if len(parts) >= 3 && parts[0] == "buckets" {
-		// Check that it's not a special endpoint like upload-multiple or remove-multiple
+		// Exclude special write endpoints; those are handled by write protection above.
 		if parts[2] != "upload-multiple" && parts[2] != "remove-multiple" {
 			return true
 		}
 	}
-	
-	return false
-}
 
-// isPDFFile checks if the path ends with .pdf extension
-func isPDFFile(path string) bool {
-	return strings.HasSuffix(strings.ToLower(path), ".pdf")
+	return false
 }
