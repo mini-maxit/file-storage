@@ -15,17 +15,17 @@ func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigne
 		// Pattern: /buckets/{bucketName}/{objectKey}
 		if r.Method == http.MethodGet && isObjectEndpoint(r.URL.Path) {
 			query := r.URL.Query()
-			
-			// Check if this is a metadata-only request (no signature required)
-			metadataOnly := strings.ToLower(query.Get("metadataOnly")) == "true"
-			
-			// Check if signature parameters are present
+
+			// Metadata-only requests bypass all signature enforcement
+			if strings.ToLower(query.Get("metadataOnly")) == "true" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			expires := query.Get("expires")
 			signature := query.Get("signature")
-			
-			// If either expires or signature is present, validate both
+
 			if expires != "" || signature != "" {
-				// Validate the signature
 				err := signer.ValidateSignedURL(r.URL.Path, expires, signature)
 				if err != nil {
 					log.Warnf("Signature validation failed for %s: %v", r.URL.Path, err)
@@ -33,8 +33,7 @@ func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigne
 					return
 				}
 				log.Debugf("Signature validated successfully for %s", r.URL.Path)
-			} else if !metadataOnly && isPDFFile(r.URL.Path) {
-				// Only require signatures for PDF file downloads (not metadata)
+			} else if isPDFFile(r.URL.Path) {
 				log.Warnf("Missing signature for PDF file access: %s", r.URL.Path)
 				http.Error(w, "Forbidden: signature required for PDF file access", http.StatusForbidden)
 				return

@@ -73,27 +73,36 @@ func (s *URLSigner) ValidateSignedURL(path string, expiresStr string, signature 
 	}
 
 	// Check if URL has expired
-	if time.Now().Unix() > expiresAt {
+	if time.Now().Unix() >= expiresAt {
 		return errors.New("URL has expired")
 	}
 
 	// Recreate the string that was signed
 	stringToSign := fmt.Sprintf("%s:%d", path, expiresAt)
 
-	// Generate expected signature
-	expectedSignature := s.generateSignature(stringToSign)
+	// Decode provided signature to raw bytes for constant-time comparison
+	providedMAC, err := base64.URLEncoding.DecodeString(signature)
+	if err != nil {
+		return fmt.Errorf("invalid signature encoding: %w", err)
+	}
 
-	// Compare signatures using constant-time comparison to prevent timing attacks
-	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+	// Generate expected HMAC bytes and compare in constant time
+	expectedMAC := s.generateSignatureBytes(stringToSign)
+	if len(providedMAC) != len(expectedMAC) || !hmac.Equal(providedMAC, expectedMAC) {
 		return errors.New("invalid signature")
 	}
 
 	return nil
 }
 
-// generateSignature creates an HMAC-SHA256 signature and returns it as base64 URL-encoded string
-func (s *URLSigner) generateSignature(data string) string {
+// generateSignatureBytes creates an HMAC-SHA256 signature and returns raw bytes
+func (s *URLSigner) generateSignatureBytes(data string) []byte {
 	h := hmac.New(sha256.New, s.secret)
 	h.Write([]byte(data))
-	return base64.URLEncoding.EncodeToString(h.Sum(nil))
+	return h.Sum(nil)
+}
+
+// generateSignature creates an HMAC-SHA256 signature and returns it as base64 URL-encoded string
+func (s *URLSigner) generateSignature(data string) string {
+	return base64.URLEncoding.EncodeToString(s.generateSignatureBytes(data))
 }

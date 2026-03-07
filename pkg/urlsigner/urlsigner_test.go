@@ -21,17 +21,21 @@ func TestSignURL(t *testing.T) {
 		t.Fatal("Signed URL should not be empty")
 	}
 
-	// Verify the signed URL contains expires and signature parameters
-	if !strings.Contains(signedURL, "expires=") {
+	u, err := url.Parse(signedURL)
+	if err != nil {
+		t.Fatalf("Failed to parse signed URL: %v", err)
+	}
+
+	if u.Query().Get("expires") == "" {
 		t.Error("Signed URL should contain expires parameter")
 	}
 
-	if !strings.Contains(signedURL, "signature=") {
+	if u.Query().Get("signature") == "" {
 		t.Error("Signed URL should contain signature parameter")
 	}
 
-	if !strings.HasPrefix(signedURL, path) {
-		t.Errorf("Signed URL should start with original path %s, got %s", path, signedURL)
+	if u.Path != path {
+		t.Errorf("Signed URL should have path %s, got %s", path, u.Path)
 	}
 }
 
@@ -53,22 +57,14 @@ func TestValidateSignedURL_Valid(t *testing.T) {
 		t.Fatalf("Failed to sign URL: %v", err)
 	}
 
-	// Parse the signed URL to extract query parameters
-	parts := strings.Split(signedURL, "?")
-	if len(parts) != 2 {
-		t.Fatalf("Invalid signed URL format: %s", signedURL)
-	}
-
-	// Parse query parameters properly
-	params, err := url.ParseQuery(parts[1])
+	u, err := url.Parse(signedURL)
 	if err != nil {
-		t.Fatalf("Failed to parse query parameters: %v", err)
+		t.Fatalf("Failed to parse signed URL: %v", err)
 	}
 
-	expiresStr := params.Get("expires")
-	signature := params.Get("signature")
+	expiresStr := u.Query().Get("expires")
+	signature := u.Query().Get("signature")
 
-	// Validate the signed URL
 	err = signer.ValidateSignedURL(path, expiresStr, signature)
 	if err != nil {
 		t.Errorf("Failed to validate valid signed URL: %v", err)
@@ -78,7 +74,7 @@ func TestValidateSignedURL_Valid(t *testing.T) {
 func TestValidateSignedURL_Expired(t *testing.T) {
 	signer := NewURLSigner("test-secret")
 	path := "/buckets/test-bucket/test-file.pdf"
-	
+
 	// Create a URL that expired 1 hour ago
 	ttl := -1 * time.Hour
 
@@ -87,22 +83,14 @@ func TestValidateSignedURL_Expired(t *testing.T) {
 		t.Fatalf("Failed to sign URL: %v", err)
 	}
 
-	// Parse the signed URL to extract query parameters
-	parts := strings.Split(signedURL, "?")
-	if len(parts) != 2 {
-		t.Fatalf("Invalid signed URL format: %s", signedURL)
-	}
-
-	// Parse query parameters properly
-	params, err := url.ParseQuery(parts[1])
+	u, err := url.Parse(signedURL)
 	if err != nil {
-		t.Fatalf("Failed to parse query parameters: %v", err)
+		t.Fatalf("Failed to parse signed URL: %v", err)
 	}
 
-	expiresStr := params.Get("expires")
-	signature := params.Get("signature")
+	expiresStr := u.Query().Get("expires")
+	signature := u.Query().Get("signature")
 
-	// Validate the signed URL - should fail due to expiration
 	err = signer.ValidateSignedURL(path, expiresStr, signature)
 	if err == nil {
 		t.Error("Expected error for expired URL")
@@ -123,22 +111,14 @@ func TestValidateSignedURL_InvalidSignature(t *testing.T) {
 		t.Fatalf("Failed to sign URL: %v", err)
 	}
 
-	// Parse the signed URL to extract query parameters
-	parts := strings.Split(signedURL, "?")
-	if len(parts) != 2 {
-		t.Fatalf("Invalid signed URL format: %s", signedURL)
-	}
-
-	// Parse query parameters properly
-	params, err := url.ParseQuery(parts[1])
+	u, err := url.Parse(signedURL)
 	if err != nil {
-		t.Fatalf("Failed to parse query parameters: %v", err)
+		t.Fatalf("Failed to parse signed URL: %v", err)
 	}
 
-	expiresStr := params.Get("expires")
+	expiresStr := u.Query().Get("expires")
 	invalidSignature := "invalid-signature"
 
-	// Validate with invalid signature
 	err = signer.ValidateSignedURL(path, expiresStr, invalidSignature)
 	if err == nil {
 		t.Error("Expected error for invalid signature")
@@ -179,20 +159,13 @@ func TestValidateSignedURL_TamperedPath(t *testing.T) {
 		t.Fatalf("Failed to sign URL: %v", err)
 	}
 
-	// Parse the signed URL to extract query parameters
-	parts := strings.Split(signedURL, "?")
-	if len(parts) != 2 {
-		t.Fatalf("Invalid signed URL format: %s", signedURL)
-	}
-
-	// Parse query parameters properly
-	params, err := url.ParseQuery(parts[1])
+	u, err := url.Parse(signedURL)
 	if err != nil {
-		t.Fatalf("Failed to parse query parameters: %v", err)
+		t.Fatalf("Failed to parse signed URL: %v", err)
 	}
 
-	expiresStr := params.Get("expires")
-	signature := params.Get("signature")
+	expiresStr := u.Query().Get("expires")
+	signature := u.Query().Get("signature")
 
 	// Validate with a different path (tampered)
 	tamperedPath := "/buckets/test-bucket/different-file.pdf"
@@ -213,19 +186,29 @@ func TestDifferentSecretsProduceDifferentSignatures(t *testing.T) {
 	signer1 := NewURLSigner("secret1")
 	signer2 := NewURLSigner("secret2")
 
-	signedURL1, _ := signer1.SignURL(path, ttl)
-	signedURL2, _ := signer2.SignURL(path, ttl)
-
-	// Extract signatures
-	parts1 := strings.Split(signedURL1, "signature=")
-	parts2 := strings.Split(signedURL2, "signature=")
-
-	if len(parts1) < 2 || len(parts2) < 2 {
-		t.Fatal("Failed to extract signatures")
+	signedURL1, err := signer1.SignURL(path, ttl)
+	if err != nil {
+		t.Fatalf("signer1.SignURL failed: %v", err)
+	}
+	signedURL2, err := signer2.SignURL(path, ttl)
+	if err != nil {
+		t.Fatalf("signer2.SignURL failed: %v", err)
 	}
 
-	sig1 := parts1[1]
-	sig2 := parts2[1]
+	u1, err := url.Parse(signedURL1)
+	if err != nil {
+		t.Fatalf("failed to parse signedURL1: %v", err)
+	}
+	u2, err := url.Parse(signedURL2)
+	if err != nil {
+		t.Fatalf("failed to parse signedURL2: %v", err)
+	}
+
+	sig1 := u1.Query().Get("signature")
+	sig2 := u2.Query().Get("signature")
+	if sig1 == "" || sig2 == "" {
+		t.Fatal("failed to extract signatures from signed URLs")
+	}
 
 	if sig1 == sig2 {
 		t.Error("Different secrets should produce different signatures")
