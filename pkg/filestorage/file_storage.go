@@ -31,7 +31,10 @@ type FileStorage interface {
 
 	GetFile(bucketName string, objectKey string) ([]byte, error)
 	GetFileURL(bucketName string, objectKey string) string
-	GetSignedFileURL(bucketName string, objectKey string, ttl time.Duration, signingSecret string) (string, error)
+	// GetSignedFileURL returns a signed path (e.g. /buckets/name/key?expires=...&signature=...)
+	// with expiration. The caller is responsible for prepending the desired base URL.
+	// SigningSecret must be set in FileStorageConfig.
+	GetSignedFileURL(bucketName string, objectKey string, ttl time.Duration) (string, error)
 	GetFileMetadata(bucketName string, objectKey string) (*entities.Object, error)
 	UploadFile(bucketName string, objectKey string, file *os.File) error
 	DeleteFile(bucketName string, objectKey string) error
@@ -41,6 +44,7 @@ type FileStorageConfig struct {
 	URL            string
 	Version        string // Currently not used, but can be used for versioning the storage API
 	InternalAPIKey string // Sent as X-Internal-Key header on all write requests and internal reads
+	SigningSecret  string // Used to generate signed URLs; must match the server-side SIGNING_SECRET
 }
 
 type fileStorage struct {
@@ -488,23 +492,18 @@ func (fs *fileStorage) GetFileURL(bucketName string, objectKey string) string {
 	return fs.config.URL + apiPrefix
 }
 
-// GetSignedFileURL returns a signed URL with expiration for accessing a file
-// bucketName: the name of the bucket
-// objectKey: the key/path of the object
-// ttl: time-to-live duration for the signed URL
-// signingSecret: the secret key used to sign the URL (must match server-side secret)
-func (fs *fileStorage) GetSignedFileURL(bucketName string, objectKey string, ttl time.Duration, signingSecret string) (string, error) {
-	if signingSecret == "" {
+// GetSignedFileURL returns a signed path (e.g. /buckets/name/key?expires=...&signature=...) with expiration.
+// The caller is responsible for prepending the desired base URL.
+// FileStorageConfig.SigningSecret must be set.
+func (fs *fileStorage) GetSignedFileURL(bucketName string, objectKey string, ttl time.Duration) (string, error) {
+	if fs.config.SigningSecret == "" {
 		return "", errors.New("signing secret is required")
 	}
 
-	// Create the path for the object
 	apiPrefix := fmt.Sprintf("/buckets/%s/%s", bucketName, objectKey)
-	
-	// Create a URL signer with the provided secret
-	signer := urlsigner.NewURLSigner(signingSecret)
-	
-	// Sign the URL path
+
+	signer := urlsigner.NewURLSigner(fs.config.SigningSecret)
+
 	signedPath, err := signer.SignURL(apiPrefix, ttl)
 	if err != nil {
 		slog.Error("Error signing URL", "error", err)
@@ -515,8 +514,7 @@ func (fs *fileStorage) GetSignedFileURL(bucketName string, objectKey string, ttl
 		}
 	}
 
-	// Return the full URL with the signed path
-	return fs.config.URL + signedPath, nil
+	return signedPath, nil
 }
 
 func (fs *fileStorage) GetFileMetadata(bucketName string, objectKey string) (*entities.Object, error) {
