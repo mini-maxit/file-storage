@@ -21,8 +21,13 @@ func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigne
 
 			query := r.URL.Query()
 
-			// Metadata-only requests bypass signature enforcement.
+			// Metadata-only requests are internal-only; require the internal key.
 			if strings.ToLower(query.Get("metadataOnly")) == "true" {
+				if internalAPIKey == "" || r.Header.Get("X-Internal-Key") != internalAPIKey {
+					log.Warnf("Unauthorized metadata access to %s", r.URL.Path)
+					http.Error(w, "Forbidden", http.StatusForbidden)
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -43,6 +48,13 @@ func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigne
 				http.Error(w, "Forbidden: signature required for file access", http.StatusForbidden)
 				return
 			}
+		} else if r.Method == http.MethodGet && isBucketEndpoint(r.URL.Path) {
+			// Bucket listing/info endpoints are internal-only.
+			if internalAPIKey == "" || r.Header.Get("X-Internal-Key") != internalAPIKey {
+				log.Warnf("Unauthorized access to bucket endpoint %s", r.URL.Path)
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
 		} else if r.Method != http.MethodGet {
 			// All write operations require the internal API key.
 			if internalAPIKey == "" || r.Header.Get("X-Internal-Key") != internalAPIKey {
@@ -54,6 +66,11 @@ func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigne
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isBucketEndpoint checks if the path targets the /buckets namespace (listing, info).
+func isBucketEndpoint(path string) bool {
+	return strings.HasPrefix(path, "/buckets")
 }
 
 // isObjectEndpoint checks if the path is an object endpoint.

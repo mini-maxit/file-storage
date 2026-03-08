@@ -196,20 +196,43 @@ func TestSignatureValidationMiddleware_MetadataOnlyRequest(t *testing.T) {
 		w.Write([]byte("OK"))
 	})
 
-	// Wrap the handler with the signature validation middleware
+	// Wrap the handler with the signature validation middleware (no internal key)
 	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
 
-	// Create a metadata-only request (no signature required)
+	// Metadata-only requests now require the internal key
 	path := "/buckets/test-bucket/test-file.pdf?metadataOnly=true"
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	w := httptest.NewRecorder()
 
-	// Execute the middleware
 	middleware.ServeHTTP(w, req)
 
-	// Check that the request was successful (no signature required for metadata-only)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403 for metadata-only without internal key, got %d", w.Code)
+	}
+}
+
+func TestSignatureValidationMiddleware_MetadataOnlyWithInternalKey(t *testing.T) {
+	signer := urlsigner.NewURLSigner("test-secret")
+	logger, _ := zap.NewDevelopment()
+	sugaredLogger := logger.Sugar()
+
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	internalKey := "test-internal-key"
+	middleware := SignatureValidationMiddleware(nextHandler, signer, internalKey, sugaredLogger)
+
+	path := "/buckets/test-bucket/test-file.pdf?metadataOnly=true"
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("X-Internal-Key", internalKey)
+	w := httptest.NewRecorder()
+
+	middleware.ServeHTTP(w, req)
+
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200 for metadata-only request, got %d", w.Code)
+		t.Errorf("Expected status 200 for metadata-only with internal key, got %d", w.Code)
 	}
 }
 
@@ -318,20 +341,43 @@ func TestSignatureValidationMiddleware_NonObjectEndpoint(t *testing.T) {
 		w.Write([]byte("OK"))
 	})
 
-	// Wrap the handler with the signature validation middleware
+	// Wrap the handler with the signature validation middleware (no internal key)
 	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
 
-	// Create a request to a non-object endpoint (e.g., bucket listing)
+	// Bucket endpoints are internal-only — require the internal key
 	path := "/buckets/test-bucket"
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	w := httptest.NewRecorder()
 
-	// Execute the middleware
 	middleware.ServeHTTP(w, req)
 
-	// Check that the request was successful (no signature required for bucket endpoints)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403 for bucket endpoint without internal key, got %d", w.Code)
+	}
+}
+
+func TestSignatureValidationMiddleware_BucketEndpointWithInternalKey(t *testing.T) {
+	signer := urlsigner.NewURLSigner("test-secret")
+	logger, _ := zap.NewDevelopment()
+	sugaredLogger := logger.Sugar()
+
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	internalKey := "test-internal-key"
+	middleware := SignatureValidationMiddleware(nextHandler, signer, internalKey, sugaredLogger)
+
+	path := "/buckets/test-bucket"
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("X-Internal-Key", internalKey)
+	w := httptest.NewRecorder()
+
+	middleware.ServeHTTP(w, req)
+
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200 for bucket endpoint, got %d", w.Code)
+		t.Errorf("Expected status 200 for bucket endpoint with internal key, got %d", w.Code)
 	}
 }
 

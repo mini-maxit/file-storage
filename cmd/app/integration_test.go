@@ -118,16 +118,17 @@ func TestSignedURLIntegration(t *testing.T) {
 		}
 	})
 
-	// Test 5: Metadata request should work without signature
+	// Test 5: Metadata request requires internal key (no signature needed)
 	t.Run("MetadataWithoutSignature", func(t *testing.T) {
 		path := "/buckets/test-bucket/test.pdf?metadataOnly=true"
 		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("X-Internal-Key", "test-internal-key")
 		w := httptest.NewRecorder()
 
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusOK {
-			t.Errorf("Expected 200 for metadata request, got %d: %s", w.Code, w.Body.String())
+			t.Errorf("Expected 200 for metadata request with internal key, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 
