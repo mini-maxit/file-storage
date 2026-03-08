@@ -24,8 +24,10 @@ jobs:
       
       - name: Extract branch name
         shell: bash
-        run: echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
-      
+        run: |
+          RAW="${GITHUB_REF#refs/heads/}"
+          echo "BRANCH_NAME=${RAW//\//-}" >> $GITHUB_ENV
+
       - name: Set Docker tag
         run: |
           if [ "${{ env.BRANCH_NAME }}" = "master" ]; then
