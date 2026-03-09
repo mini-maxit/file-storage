@@ -466,62 +466,74 @@ func TestDeleteMultipleFiles(t *testing.T) {
 	}
 }
 
-func TestGetSignedFileURL(t *testing.T) {
+func TestGetSignedFilePath_ViaEndpoint(t *testing.T) {
+	bucketName := "test-bucket"
+	objectKey := "test-file.pdf"
+	ttl := 1 * time.Hour
+
+	// Mock the /sign endpoint (as served by the internal server)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/sign" {
+			t.Errorf("Expected GET /sign, got %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		q := r.URL.Query()
+		if q.Get("bucket") != bucketName {
+			t.Errorf("Expected bucket=%s, got %s", bucketName, q.Get("bucket"))
+		}
+		if q.Get("key") != objectKey {
+			t.Errorf("Expected key=%s, got %s", objectKey, q.Get("key"))
+		}
+		// Return a plausible signed path
+		signedPath := fmt.Sprintf("/buckets/%s/%s?expires=9999999999&signature=abc123", bucketName, objectKey)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(struct {
+			SignedPath string `json:"signedPath"`
+		}{SignedPath: signedPath})
+	}))
+	defer srv.Close()
+
 	config := filestorage.FileStorageConfig{
-		URL: "https://example.com",
+		URL: srv.URL,
 	}
 	storage, err := filestorage.NewFileStorage(config)
 	if err != nil {
 		t.Fatalf("Failed to create file storage: %v", err)
 	}
 
-	bucketName := "test-bucket"
-	objectKey := "test-file.pdf"
-	ttl := 1 * time.Hour
-	signingSecret := "test-secret-key"
-
-	signedURL, err := storage.GetSignedFileURL(bucketName, objectKey, ttl, signingSecret)
+	signedPath, err := storage.GetSignedFilePath(bucketName, objectKey, ttl)
 	if err != nil {
-		t.Fatalf("Failed to generate signed URL: %v", err)
+		t.Fatalf("Failed to generate signed path: %v", err)
 	}
 
-	// Verify the signed URL contains the base URL
-	if !strings.Contains(signedURL, config.URL) {
-		t.Errorf("Signed URL should contain base URL %s, got %s", config.URL, signedURL)
+	expectedPrefix := fmt.Sprintf("/buckets/%s/%s", bucketName, objectKey)
+	if !strings.HasPrefix(signedPath, expectedPrefix) {
+		t.Errorf("Signed path should start with %s, got %s", expectedPrefix, signedPath)
 	}
-
-	// Verify the signed URL contains expires and signature parameters
-	if !strings.Contains(signedURL, "expires=") {
-		t.Error("Signed URL should contain expires parameter")
+	if strings.Contains(signedPath, srv.URL) {
+		t.Errorf("Signed path should not contain base URL; got %s", signedPath)
 	}
-
-	if !strings.Contains(signedURL, "signature=") {
-		t.Error("Signed URL should contain signature parameter")
-	}
-
-	// Verify the path is correct
-	expectedPath := fmt.Sprintf("/buckets/%s/%s", bucketName, objectKey)
-	if !strings.Contains(signedURL, expectedPath) {
-		t.Errorf("Signed URL should contain path %s", expectedPath)
+	if !strings.Contains(signedPath, "expires=") || !strings.Contains(signedPath, "signature=") {
+		t.Errorf("Signed path should contain expires and signature params, got %s", signedPath)
 	}
 }
 
-func TestGetSignedFileURL_EmptySecret(t *testing.T) {
-	config := filestorage.FileStorageConfig{
-		URL: "https://example.com",
-	}
+func TestGetSignedFilePath_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	config := filestorage.FileStorageConfig{URL: srv.URL}
 	storage, err := filestorage.NewFileStorage(config)
 	if err != nil {
 		t.Fatalf("Failed to create file storage: %v", err)
 	}
 
-	bucketName := "test-bucket"
-	objectKey := "test-file.pdf"
-	ttl := 1 * time.Hour
-
-	_, err = storage.GetSignedFileURL(bucketName, objectKey, ttl, "")
+	_, err = storage.GetSignedFilePath("bucket", "key", time.Minute)
 	if err == nil {
-		t.Error("Expected error for empty signing secret")
+		t.Error("Expected error for server error response")
 	}
 }
-

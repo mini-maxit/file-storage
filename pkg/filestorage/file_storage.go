@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mini-maxit/file-storage/pkg/filestorage/entities"
-	"github.com/mini-maxit/file-storage/pkg/urlsigner"
 )
 
 type FileStorage interface {
@@ -31,20 +31,18 @@ type FileStorage interface {
 
 	GetFile(bucketName string, objectKey string) ([]byte, error)
 	GetFileURL(bucketName string, objectKey string) string
-	// GetSignedFileURL returns a signed path (e.g. /buckets/name/key?expires=...&signature=...)
-	// with expiration. The caller is responsible for prepending the desired base URL.
-	// SigningSecret must be set in FileStorageConfig.
-	GetSignedFileURL(bucketName string, objectKey string, ttl time.Duration) (string, error)
+	// GetSignedFilePath calls the /sign endpoint on the file-storage internal server
+	// and returns a signed path (e.g. /buckets/name/key?expires=...&signature=...).
+	// The caller is responsible for prepending the desired base URL.
+	GetSignedFilePath(bucketName string, objectKey string, ttl time.Duration) (string, error)
 	GetFileMetadata(bucketName string, objectKey string) (*entities.Object, error)
 	UploadFile(bucketName string, objectKey string, file *os.File) error
 	DeleteFile(bucketName string, objectKey string) error
 }
 
 type FileStorageConfig struct {
-	URL            string
-	Version        string // Currently not used, but can be used for versioning the storage API
-	InternalAPIKey string // Sent as X-Internal-Key header on all write requests and internal reads
-	SigningSecret  string // Used to generate signed URLs; must match the server-side SIGNING_SECRET
+	URL     string
+	Version string // Currently not used, but can be used for versioning the storage API
 }
 
 type fileStorage struct {
@@ -142,9 +140,6 @@ func (fs *fileStorage) CreateBucket(bucketName string) error {
 		}
 	}
 	createReq.Header.Set("Content-Type", "application/json")
-	if fs.config.InternalAPIKey != "" {
-		createReq.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
-	}
 
 	resp, err := client.Do(createReq)
 	if err != nil {
@@ -235,9 +230,6 @@ func (fs *fileStorage) DeleteBucket(bucketName string) error {
 			Err:     err,
 			Context: map[string]any{"bucket_name": bucketName, "method": "DELETE"},
 		}
-	}
-	if fs.config.InternalAPIKey != "" {
-		req.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -343,9 +335,6 @@ func (fs *fileStorage) UploadMultipleFiles(bucketName string, directoryPrefix st
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	if fs.config.InternalAPIKey != "" {
-		req.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
-	}
 
 	// Make the request
 	resp, err := client.Do(req)
@@ -393,9 +382,6 @@ func (fs *fileStorage) DeleteMultipleFiles(bucketName string, directoryPrefix st
 			Context: map[string]any{"bucket_name": bucketName, "directory_prefix": directoryPrefix, "method": "DELETE"},
 		}
 	}
-	if fs.config.InternalAPIKey != "" {
-		req.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
-	}
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.Error("Error removing multiple files", "error", err)
@@ -441,9 +427,6 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 			Err:     err,
 			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey},
 		}
-	}
-	if fs.config.InternalAPIKey != "" {
-		req.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
 	}
 
 	resp, err := client.Do(req)
@@ -492,29 +475,59 @@ func (fs *fileStorage) GetFileURL(bucketName string, objectKey string) string {
 	return fs.config.URL + apiPrefix
 }
 
-// GetSignedFileURL returns a signed path (e.g. /buckets/name/key?expires=...&signature=...) with expiration.
+// GetSignedFilePath calls the /sign endpoint on the file-storage internal server
+// and returns a signed path (e.g. /buckets/name/key?expires=...&signature=...).
 // The caller is responsible for prepending the desired base URL.
-// FileStorageConfig.SigningSecret must be set.
-func (fs *fileStorage) GetSignedFileURL(bucketName string, objectKey string, ttl time.Duration) (string, error) {
-	if fs.config.SigningSecret == "" {
-		return "", errors.New("signing secret is required")
+func (fs *fileStorage) GetSignedFilePath(bucketName string, objectKey string, ttl time.Duration) (string, error) {
+	ttlSeconds := int64(ttl.Seconds())
+	if ttlSeconds <= 0 {
+		ttlSeconds = 300
 	}
 
-	apiPrefix := fmt.Sprintf("/buckets/%s/%s", bucketName, objectKey)
+	apiURL := fmt.Sprintf("%s/sign?bucket=%s&key=%s&ttl=%s",
+		fs.config.URL,
+		url.QueryEscape(bucketName),
+		url.QueryEscape(objectKey),
+		strconv.FormatInt(ttlSeconds, 10),
+	)
 
-	signer := urlsigner.NewURLSigner(fs.config.SigningSecret)
-
-	signedPath, err := signer.SignURL(apiPrefix, ttl)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(apiURL)
 	if err != nil {
-		slog.Error("Error signing URL", "error", err)
+		slog.Error("Error calling /sign endpoint", "error", err)
 		return "", &ErrClient{
-			Message: "failed to sign URL",
+			Message: "failed to call /sign endpoint",
+			Err:     err,
+			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey, "url": apiURL},
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(resp.Body)
+		return "", &ErrAPI{
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
+		}
+	}
+
+	var result struct {
+		SignedPath string `json:"signedPath"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		slog.Error("Error decoding /sign response", "error", err)
+		return "", &ErrClient{
+			Message: "failed to decode /sign response",
 			Err:     err,
 			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey},
 		}
 	}
 
-	return signedPath, nil
+	if result.SignedPath == "" {
+		return "", errors.New("sign endpoint returned empty signedPath")
+	}
+
+	return result.SignedPath, nil
 }
 
 func (fs *fileStorage) GetFileMetadata(bucketName string, objectKey string) (*entities.Object, error) {
@@ -596,9 +609,6 @@ func (fs *fileStorage) UploadFile(bucketName string, objectKey string, file *os.
 
 	header := http.Header{}
 	header.Set("Content-Type", writer.FormDataContentType())
-	if fs.config.InternalAPIKey != "" {
-		header.Set("X-Internal-Key", fs.config.InternalAPIKey)
-	}
 	parsedURL, err := url.Parse(apiURL)
 	if err != nil {
 		slog.Error("Error parsing API URL", "error", err)
@@ -677,10 +687,6 @@ func (fs *fileStorage) DeleteFile(bucketName string, objectKey string) error {
 			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey, "method": "DELETE"},
 		}
 	}
-	if fs.config.InternalAPIKey != "" {
-		req.Header.Set("X-Internal-Key", fs.config.InternalAPIKey)
-	}
-
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.Error("Error deleting file", "error", err)
