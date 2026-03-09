@@ -465,3 +465,75 @@ func TestDeleteMultipleFiles(t *testing.T) {
 		t.Fatalf("Failed to delete multiple files: %v", err)
 	}
 }
+
+func TestGetSignedFilePath_ViaEndpoint(t *testing.T) {
+	bucketName := "test-bucket"
+	objectKey := "test-file.pdf"
+	ttl := 1 * time.Hour
+
+	// Mock the /sign endpoint (as served by the internal server)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/sign" {
+			t.Errorf("Expected GET /sign, got %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		q := r.URL.Query()
+		if q.Get("bucket") != bucketName {
+			t.Errorf("Expected bucket=%s, got %s", bucketName, q.Get("bucket"))
+		}
+		if q.Get("key") != objectKey {
+			t.Errorf("Expected key=%s, got %s", objectKey, q.Get("key"))
+		}
+		// Return a plausible signed path
+		signedPath := fmt.Sprintf("/buckets/%s/%s?expires=9999999999&signature=abc123", bucketName, objectKey)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(struct {
+			SignedPath string `json:"signedPath"`
+		}{SignedPath: signedPath})
+	}))
+	defer srv.Close()
+
+	config := filestorage.FileStorageConfig{
+		URL: srv.URL,
+	}
+	storage, err := filestorage.NewFileStorage(config)
+	if err != nil {
+		t.Fatalf("Failed to create file storage: %v", err)
+	}
+
+	signedPath, err := storage.GetSignedFilePath(bucketName, objectKey, ttl)
+	if err != nil {
+		t.Fatalf("Failed to generate signed path: %v", err)
+	}
+
+	expectedPrefix := fmt.Sprintf("/buckets/%s/%s", bucketName, objectKey)
+	if !strings.HasPrefix(signedPath, expectedPrefix) {
+		t.Errorf("Signed path should start with %s, got %s", expectedPrefix, signedPath)
+	}
+	if strings.Contains(signedPath, srv.URL) {
+		t.Errorf("Signed path should not contain base URL; got %s", signedPath)
+	}
+	if !strings.Contains(signedPath, "expires=") || !strings.Contains(signedPath, "signature=") {
+		t.Errorf("Signed path should contain expires and signature params, got %s", signedPath)
+	}
+}
+
+func TestGetSignedFilePath_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	config := filestorage.FileStorageConfig{URL: srv.URL}
+	storage, err := filestorage.NewFileStorage(config)
+	if err != nil {
+		t.Fatalf("Failed to create file storage: %v", err)
+	}
+
+	_, err = storage.GetSignedFilePath("bucket", "key", time.Minute)
+	if err == nil {
+		t.Error("Expected error for server error response")
+	}
+}

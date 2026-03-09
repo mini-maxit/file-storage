@@ -2,6 +2,26 @@
 
 This is a file storage server for the MAXIT project.
 
+## Features
+
+- **S3-like API**: Bucket and object management
+- **Signed URLs**: Time-limited, secure access to PDF files via HMAC-SHA256 signatures
+- **Simple deployment**: Single binary with filesystem storage
+
+### Signed URLs for Secure File Access
+
+The file storage service supports signed, time-limited URLs for secure PDF access. See [SIGNED_URLS.md](./SIGNED_URLS.md) for detailed documentation.
+
+Quick example:
+```go
+storage, _ := filestorage.NewFileStorage(filestorage.FileStorageConfig{
+    URL: "https://storage.example.com",
+})
+
+// Generate a URL valid for 1 hour
+signedURL, _ := storage.GetSignedFileURL("bucket", "file.pdf", 1*time.Hour, "secret")
+```
+
 ## Build
 
 Prerequisites:
@@ -36,8 +56,14 @@ To set up and run the File Storage API, follow these steps:
     cp .env.dist .env
    ```
    Update the `.env` file with the necessary environment variables.
+   
+   **Important**: Set `SIGNING_SECRET` for signed URL support:
+   ```bash
+   SIGNING_SECRET=your-secret-key-here
+   ```
+   
 4. **Run the Application**: To run the application, you can use the prepared `Makefile`.
-   jut run:
+   just run:
    ```bash
    make
    ```

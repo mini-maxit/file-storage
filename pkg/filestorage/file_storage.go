@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,10 @@ type FileStorage interface {
 
 	GetFile(bucketName string, objectKey string) ([]byte, error)
 	GetFileURL(bucketName string, objectKey string) string
+	// GetSignedFilePath calls the /sign endpoint on the file-storage internal server
+	// and returns a signed path (e.g. /buckets/name/key?expires=...&signature=...).
+	// The caller is responsible for prepending the desired base URL.
+	GetSignedFilePath(bucketName string, objectKey string, ttl time.Duration) (string, error)
 	GetFileMetadata(bucketName string, objectKey string) (*entities.Object, error)
 	UploadFile(bucketName string, objectKey string, file *os.File) error
 	DeleteFile(bucketName string, objectKey string) error
@@ -125,7 +130,18 @@ func (fs *fileStorage) CreateBucket(bucketName string) error {
 	}
 	body := bytes.NewReader(bytesBody)
 
-	resp, err := client.Post(apiURL, "application/json", body)
+	createReq, err := http.NewRequest(http.MethodPost, apiURL, body)
+	if err != nil {
+		slog.Error("Error creating bucket request", "error", err)
+		return &ErrClient{
+			Message: "failed to create bucket request",
+			Err:     err,
+			Context: map[string]any{"bucket_name": bucketName, "url": apiURL},
+		}
+	}
+	createReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(createReq)
 	if err != nil {
 		slog.Error("Error creating bucket", "error", err)
 		return &ErrClient{
@@ -403,7 +419,17 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	resp, err := client.Get(apiURL)
+	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
+	if err != nil {
+		slog.Error("Error creating get file request", "error", err)
+		return nil, &ErrClient{
+			Message: "failed to create get file request",
+			Err:     err,
+			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey},
+		}
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		slog.Error("Error fetching file metadata", "error", err)
 		return nil, &ErrClient{
@@ -447,6 +473,61 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 func (fs *fileStorage) GetFileURL(bucketName string, objectKey string) string {
 	apiPrefix := fmt.Sprintf("/buckets/%s/%s?metadataOnly=false", bucketName, objectKey)
 	return fs.config.URL + apiPrefix
+}
+
+// GetSignedFilePath calls the /sign endpoint on the file-storage internal server
+// and returns a signed path (e.g. /buckets/name/key?expires=...&signature=...).
+// The caller is responsible for prepending the desired base URL.
+func (fs *fileStorage) GetSignedFilePath(bucketName string, objectKey string, ttl time.Duration) (string, error) {
+	ttlSeconds := int64(ttl.Seconds())
+	if ttlSeconds <= 0 {
+		ttlSeconds = 300
+	}
+
+	apiURL := fmt.Sprintf("%s/sign?bucket=%s&key=%s&ttl=%s",
+		fs.config.URL,
+		url.QueryEscape(bucketName),
+		url.QueryEscape(objectKey),
+		strconv.FormatInt(ttlSeconds, 10),
+	)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(apiURL)
+	if err != nil {
+		slog.Error("Error calling /sign endpoint", "error", err)
+		return "", &ErrClient{
+			Message: "failed to call /sign endpoint",
+			Err:     err,
+			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey, "url": apiURL},
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(resp.Body)
+		return "", &ErrAPI{
+			StatusCode: resp.StatusCode,
+			Message:    string(msg),
+		}
+	}
+
+	var result struct {
+		SignedPath string `json:"signedPath"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		slog.Error("Error decoding /sign response", "error", err)
+		return "", &ErrClient{
+			Message: "failed to decode /sign response",
+			Err:     err,
+			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey},
+		}
+	}
+
+	if result.SignedPath == "" {
+		return "", errors.New("sign endpoint returned empty signedPath")
+	}
+
+	return result.SignedPath, nil
 }
 
 func (fs *fileStorage) GetFileMetadata(bucketName string, objectKey string) (*entities.Object, error) {
@@ -606,7 +687,6 @@ func (fs *fileStorage) DeleteFile(bucketName string, objectKey string) error {
 			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey, "method": "DELETE"},
 		}
 	}
-
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.Error("Error deleting file", "error", err)
