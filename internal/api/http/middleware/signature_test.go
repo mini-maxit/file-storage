@@ -14,7 +14,7 @@ import (
 func TestSignatureValidationMiddleware_ValidSignature(t *testing.T) {
 	// Create a test signer
 	signer := urlsigner.NewURLSigner("test-secret")
-	
+
 	// Create a test logger
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
@@ -26,7 +26,7 @@ func TestSignatureValidationMiddleware_ValidSignature(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
 	// Sign a URL
 	path := "/buckets/test-bucket/test-file.pdf"
@@ -51,7 +51,7 @@ func TestSignatureValidationMiddleware_ValidSignature(t *testing.T) {
 func TestSignatureValidationMiddleware_ExpiredSignature(t *testing.T) {
 	// Create a test signer
 	signer := urlsigner.NewURLSigner("test-secret")
-	
+
 	// Create a test logger
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
@@ -63,7 +63,7 @@ func TestSignatureValidationMiddleware_ExpiredSignature(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
 	// Sign a URL with negative TTL (already expired)
 	path := "/buckets/test-bucket/test-file.pdf"
@@ -88,7 +88,7 @@ func TestSignatureValidationMiddleware_ExpiredSignature(t *testing.T) {
 func TestSignatureValidationMiddleware_InvalidSignature(t *testing.T) {
 	// Create a test signer
 	signer := urlsigner.NewURLSigner("test-secret")
-	
+
 	// Create a test logger
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
@@ -100,7 +100,7 @@ func TestSignatureValidationMiddleware_InvalidSignature(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
 	// Create a URL with invalid signature
 	path := "/buckets/test-bucket/test-file.pdf"
@@ -123,7 +123,7 @@ func TestSignatureValidationMiddleware_InvalidSignature(t *testing.T) {
 func TestSignatureValidationMiddleware_MissingSignature(t *testing.T) {
 	// Create a test signer
 	signer := urlsigner.NewURLSigner("test-secret")
-	
+
 	// Create a test logger
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
@@ -135,7 +135,7 @@ func TestSignatureValidationMiddleware_MissingSignature(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
 	// Create a request without signature for a PDF file
 	path := "/buckets/test-bucket/test-file.pdf"
@@ -166,7 +166,7 @@ func TestSignatureValidationMiddleware_MissingSignatureNonPDF(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware
-	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
 	// Create a request without signature for a non-PDF file (all files now require signature)
 	path := "/buckets/test-bucket/test-file.txt"
@@ -185,7 +185,7 @@ func TestSignatureValidationMiddleware_MissingSignatureNonPDF(t *testing.T) {
 func TestSignatureValidationMiddleware_MetadataOnlyRequest(t *testing.T) {
 	// Create a test signer
 	signer := urlsigner.NewURLSigner("test-secret")
-	
+
 	// Create a test logger
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
@@ -197,7 +197,7 @@ func TestSignatureValidationMiddleware_MetadataOnlyRequest(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware (no internal key)
-	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
 	// Metadata-only requests now require the internal key
 	path := "/buckets/test-bucket/test-file.pdf?metadataOnly=true"
@@ -211,28 +211,28 @@ func TestSignatureValidationMiddleware_MetadataOnlyRequest(t *testing.T) {
 	}
 }
 
-func TestSignatureValidationMiddleware_MetadataOnlyWithInternalKey(t *testing.T) {
+func TestSignatureValidationMiddleware_MetadataOnlyAlwaysForbidden(t *testing.T) {
+	// Metadata-only is an internal-only operation. The public server always rejects it,
+	// regardless of any headers. Internal callers must use the internal server port.
 	signer := urlsigner.NewURLSigner("test-secret")
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
 
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called for metadata-only on public server")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
 	})
 
-	internalKey := "test-internal-key"
-	middleware := SignatureValidationMiddleware(nextHandler, signer, internalKey, sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
 	path := "/buckets/test-bucket/test-file.pdf?metadataOnly=true"
 	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.Header.Set("X-Internal-Key", internalKey)
 	w := httptest.NewRecorder()
 
 	middleware.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200 for metadata-only with internal key, got %d", w.Code)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403 for metadata-only on public server, got %d", w.Code)
 	}
 }
 
@@ -251,7 +251,7 @@ func TestSignatureValidationMiddleware_NonGetRequest(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware (no internal key configured)
-	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
 	// Create a PUT request without the internal key (write operations require the internal key)
 	path := "/buckets/test-bucket/test-file.pdf"
@@ -261,76 +261,67 @@ func TestSignatureValidationMiddleware_NonGetRequest(t *testing.T) {
 	// Execute the middleware
 	middleware.ServeHTTP(w, req)
 
-	// Check that the request was forbidden (write requires internal key)
-	if w.Code != http.StatusForbidden {
-		t.Errorf("Expected status 403 for PUT without internal key, got %d", w.Code)
+	// Check that the request was denied (write requires internal server)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status 405 for PUT without internal key, got %d", w.Code)
 	}
 }
 
-func TestSignatureValidationMiddleware_NonGetRequestWithInternalKey(t *testing.T) {
-	// Create a test signer
+func TestSignatureValidationMiddleware_NonGetRequestAlwaysDenied(t *testing.T) {
+	// The public server denies all non-GET requests unconditionally (405).
+	// Write operations must go through the internal server port.
 	signer := urlsigner.NewURLSigner("test-secret")
-
-	// Create a test logger
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
 
-	// Create a simple handler that returns 200 OK
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called for write request on public server")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
 	})
 
-	internalKey := "test-internal-key"
-	middleware := SignatureValidationMiddleware(nextHandler, signer, internalKey, sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
-	// Create a PUT request with the internal key
 	path := "/buckets/test-bucket/test-file.pdf"
 	req := httptest.NewRequest(http.MethodPut, path, nil)
-	req.Header.Set("X-Internal-Key", internalKey)
 	w := httptest.NewRecorder()
 
 	middleware.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200 for PUT with internal key, got %d", w.Code)
+	// Public server returns 405 for all write operations
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status 405 for PUT on public server, got %d", w.Code)
 	}
 }
 
-func TestSignatureValidationMiddleware_GetWithInternalKey(t *testing.T) {
-	// Create a test signer
+func TestSignatureValidationMiddleware_GetWithoutSignatureAlwaysForbidden(t *testing.T) {
+	// The public server requires a valid signature on all GET requests to object endpoints.
+	// There is no bypass mechanism — internal callers use the internal server port.
 	signer := urlsigner.NewURLSigner("test-secret")
-
-	// Create a test logger
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
 
-	// Create a simple handler that returns 200 OK
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called for unsigned GET on public server")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
 	})
 
-	internalKey := "test-internal-key"
-	middleware := SignatureValidationMiddleware(nextHandler, signer, internalKey, sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
-	// GET with internal key bypasses signature requirement
 	path := "/buckets/test-bucket/test-file.txt"
 	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.Header.Set("X-Internal-Key", internalKey)
 	w := httptest.NewRecorder()
 
 	middleware.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200 for GET with internal key, got %d", w.Code)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403 for unsigned GET on public server, got %d", w.Code)
 	}
 }
 
 func TestSignatureValidationMiddleware_NonObjectEndpoint(t *testing.T) {
 	// Create a test signer
 	signer := urlsigner.NewURLSigner("test-secret")
-	
+
 	// Create a test logger
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
@@ -342,7 +333,7 @@ func TestSignatureValidationMiddleware_NonObjectEndpoint(t *testing.T) {
 	})
 
 	// Wrap the handler with the signature validation middleware (no internal key)
-	middleware := SignatureValidationMiddleware(nextHandler, signer, "", sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
 	// Bucket endpoints are internal-only — require the internal key
 	path := "/buckets/test-bucket"
@@ -356,28 +347,27 @@ func TestSignatureValidationMiddleware_NonObjectEndpoint(t *testing.T) {
 	}
 }
 
-func TestSignatureValidationMiddleware_BucketEndpointWithInternalKey(t *testing.T) {
+func TestSignatureValidationMiddleware_BucketEndpointAlwaysForbidden(t *testing.T) {
+	// Bucket-level endpoints are internal-only. The public server always rejects them.
 	signer := urlsigner.NewURLSigner("test-secret")
 	logger, _ := zap.NewDevelopment()
 	sugaredLogger := logger.Sugar()
 
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called for bucket endpoint on public server")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
 	})
 
-	internalKey := "test-internal-key"
-	middleware := SignatureValidationMiddleware(nextHandler, signer, internalKey, sugaredLogger)
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
 
 	path := "/buckets/test-bucket"
 	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.Header.Set("X-Internal-Key", internalKey)
 	w := httptest.NewRecorder()
 
 	middleware.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200 for bucket endpoint with internal key, got %d", w.Code)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403 for bucket endpoint on public server, got %d", w.Code)
 	}
 }
 
@@ -404,4 +394,3 @@ func TestIsObjectEndpoint(t *testing.T) {
 		})
 	}
 }
-

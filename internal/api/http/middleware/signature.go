@@ -8,34 +8,24 @@ import (
 	"go.uber.org/zap"
 )
 
-// SignatureValidationMiddleware validates signed URLs for GET requests to object endpoints
-// and enforces that non-GET (write) operations carry the internal API key.
-func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigner, internalAPIKey string, log *zap.SugaredLogger) http.Handler {
+// SignatureValidationMiddleware validates signed URLs for GET requests to object endpoints.
+// All write operations are denied (should use internal server).
+func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigner, log *zap.SugaredLogger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && isObjectEndpoint(r.URL.Path) {
-			// Internal services bypass signature enforcement entirely.
-			if internalAPIKey != "" && r.Header.Get("X-Internal-Key") == internalAPIKey {
-				next.ServeHTTP(w, r)
-				return
-			}
-
 			query := r.URL.Query()
 
-			// Metadata-only requests are internal-only; require the internal key.
+			// Metadata-only requests are internal-only.
 			if strings.ToLower(query.Get("metadataOnly")) == "true" {
-				if internalAPIKey == "" || r.Header.Get("X-Internal-Key") != internalAPIKey {
-					log.Warnf("Unauthorized metadata access to %s", r.URL.Path)
-					http.Error(w, "Forbidden", http.StatusForbidden)
-					return
-				}
-				next.ServeHTTP(w, r)
+				log.Warnf("Unauthorized metadata-only access to %s", r.URL.Path)
+				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
 
 			expires := query.Get("expires")
 			signature := query.Get("signature")
 
-			if expires != "" || signature != "" {
+			if expires != "" && signature != "" {
 				err := signer.ValidateSignedURL(r.URL.Path, expires, signature)
 				if err != nil {
 					log.Warnf("Signature validation failed for %s: %v", r.URL.Path, err)
@@ -49,19 +39,15 @@ func SignatureValidationMiddleware(next http.Handler, signer *urlsigner.URLSigne
 				return
 			}
 		} else if r.Method == http.MethodGet && isBucketEndpoint(r.URL.Path) {
-			// Bucket listing/info endpoints are internal-only.
-			if internalAPIKey == "" || r.Header.Get("X-Internal-Key") != internalAPIKey {
-				log.Warnf("Unauthorized access to bucket endpoint %s", r.URL.Path)
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			}
+			// Bucket listing/info endpoints require signature.
+			log.Warnf("Unauthorized access to bucket endpoint %s", r.URL.Path)
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
 		} else if r.Method != http.MethodGet {
-			// All write operations require the internal API key.
-			if internalAPIKey == "" || r.Header.Get("X-Internal-Key") != internalAPIKey {
-				log.Warnf("Unauthorized write attempt to %s %s", r.Method, r.URL.Path)
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			}
+			// All write operations are denied on public server.
+			log.Warnf("Write operation %s on public server: %s", r.Method, r.URL.Path)
+			http.Error(w, "Method not allowed. Use internal server for write operations.", http.StatusMethodNotAllowed)
+			return
 		}
 
 		next.ServeHTTP(w, r)
