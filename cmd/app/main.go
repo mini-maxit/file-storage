@@ -1,10 +1,11 @@
 package main
 
 import (
+	"os"
+
 	"github.com/mini-maxit/file-storage/internal/api/services"
 	"github.com/mini-maxit/file-storage/internal/logger"
 	"github.com/mini-maxit/file-storage/pkg/urlsigner"
-	"os"
 
 	"github.com/joho/godotenv"
 	"github.com/mini-maxit/file-storage/internal/api/http/initialization"
@@ -30,16 +31,25 @@ func main() {
 
 	fileService := services.NewFileService(_config)
 
-	// Create URL signer with the configured secret
 	signer := urlsigner.NewURLSigner(_config.SigningSecret)
 
 	logger.InitializeLogger()
-	log := logger.NewNamedLogger("server")
+	public_log := logger.NewNamedLogger("public-server")
 
-	addr := ":" + _config.Port
-	_server := server.NewServer(fileService, signer, _config.InternalAPIKey, log)
-	err = _server.Run(addr)
-	if err != nil {
-		logrus.Fatalf("server stopped: %v", err)
+	publicAddr := ":" + _config.Port
+	publicServer := server.NewServer(fileService, signer, public_log)
+	go func() {
+		public_log.Infof("Starting public server on %s", publicAddr)
+		if err := publicServer.Run(publicAddr); err != nil {
+			logrus.Fatalf("public server stopped: %v", err)
+		}
+	}()
+
+	internalAddr := ":" + _config.InternalPort
+	internal_log := logger.NewNamedLogger("internal-server")
+	internalServer := server.NewInternalServer(fileService, signer, internal_log)
+	internal_log.Infof("Starting internal server on %s", internalAddr)
+	if err := internalServer.Run(internalAddr); err != nil {
+		logrus.Fatalf("internal server stopped: %v", err)
 	}
 }

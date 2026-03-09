@@ -2,7 +2,9 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -368,9 +370,116 @@ func deleteObjectHandler(fs *services.FileService, w http.ResponseWriter, bucket
 
 // NewServer sets up the routes, wraps the mux with HTTP logging middleware,
 // and returns the Server object.
-func NewServer(fs *services.FileService, signer *urlsigner.URLSigner, internalAPIKey string, appLog *zap.SugaredLogger) *Server {
+// This is the PUBLIC server - it ONLY allows GET (read) requests with signed URLs.
+// All write operations (POST, PUT, DELETE) are denied.
+func NewServer(fs *services.FileService, signer *urlsigner.URLSigner, appLog *zap.SugaredLogger) *Server {
 	// Create the base mux for our file storage API endpoints.
 	mux := http.NewServeMux()
+
+	// /buckets route - PUBLIC: GET only
+	mux.HandleFunc("/buckets", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			listBucketsHandler(fs, w, appLog)
+		default:
+			http.Error(w, "Method not allowed. Use internal server for write operations.", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// /buckets/* routes for bucket-specific and object-specific operations.
+	// PUBLIC: only GET requests are allowed
+	mux.HandleFunc("/buckets/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed. Use internal server for write operations.", http.StatusMethodNotAllowed)
+			return
+		}
+
+		path := strings.TrimPrefix(r.URL.Path, "/buckets/")
+		if path == "" {
+			http.Error(w, "Bucket name is required", http.StatusBadRequest)
+			return
+		}
+
+		parts := strings.SplitN(path, "/", 2)
+		bucketName := parts[0]
+
+		if len(parts) == 1 {
+			// GET /buckets/{bucketName} - get bucket info
+			getBucketHandler(fs, w, r, bucketName, appLog)
+			return
+		}
+
+		// Otherwise treat as an object key
+		// GET /buckets/{bucketName}/{objectKey} - get object
+		objectKey := parts[1]
+		getObjectHandler(fs, w, r, bucketName, objectKey, appLog)
+	})
+
+	// Retrieve an HTTP-specific logger.
+	httpLog := logger.NewHttpLogger()
+
+	// Wrap our mux with signature validation middleware first, then logging
+	signedMux := middleware.SignatureValidationMiddleware(mux, signer, httpLog)
+	loggedMux := middleware.LoggingMiddleware(signedMux, httpLog)
+
+	return &Server{
+		mux:    loggedMux,
+		logger: appLog,
+	}
+}
+
+// NewInternalServer creates a server for internal network use (backend/worker).
+// It does not validate signatures - any request from the internal network is allowed.
+// This server should only be exposed on an internal port.
+func NewInternalServer(fs *services.FileService, signer *urlsigner.URLSigner, appLog *zap.SugaredLogger) *Server {
+	// Create the base mux for our file storage API endpoints.
+	mux := http.NewServeMux()
+
+	// /sign route — returns a signed path for the given bucket+key+ttl
+	mux.HandleFunc("/sign", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		q := r.URL.Query()
+		bucket := q.Get("bucket")
+		key := q.Get("key")
+		if bucket == "" {
+			http.Error(w, "'bucket' query parameter is required", http.StatusBadRequest)
+			return
+		}
+		if key == "" {
+			http.Error(w, "'key' query parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		ttlSeconds := int64(300) // default 5 minutes
+		if ttlStr := q.Get("ttl"); ttlStr != "" {
+			parsed, err := strconv.ParseInt(ttlStr, 10, 64)
+			if err != nil || parsed <= 0 {
+				appLog.Warnf("Invalid ttl parameter %q, using default 300s", ttlStr)
+			} else {
+				ttlSeconds = parsed
+			}
+		}
+
+		objectPath := fmt.Sprintf("/buckets/%s/%s", bucket, key)
+		signedPath, err := signer.SignURL(objectPath, time.Duration(ttlSeconds)*time.Second)
+		if err != nil {
+			appLog.Errorf("Failed to sign URL for %s: %v", objectPath, err)
+			http.Error(w, "Failed to generate signed path", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(struct {
+			SignedPath string `json:"signedPath"`
+		}{SignedPath: signedPath}); err != nil {
+			appLog.Errorf("Failed to encode sign response: %v", err)
+		}
+	})
 
 	// /buckets route
 	mux.HandleFunc("/buckets", func(w http.ResponseWriter, r *http.Request) {
@@ -386,12 +495,6 @@ func NewServer(fs *services.FileService, signer *urlsigner.URLSigner, internalAP
 
 	// /buckets/* routes for bucket-specific and object-specific operations.
 	mux.HandleFunc("/buckets/", func(w http.ResponseWriter, r *http.Request) {
-		// Expected routes:
-		//   GET /buckets/{bucketName}
-		//   DELETE /buckets/{bucketName}
-		//   POST /buckets/{bucketName}/upload-multiple
-		//   DELETE /buckets/{bucketName}/remove-multiple?prefix=<prefix>
-		//   GET/PUT/DELETE /buckets/{bucketName}/{objectKey}
 		path := strings.TrimPrefix(r.URL.Path, "/buckets/")
 		if path == "" {
 			http.Error(w, "Bucket name is required", http.StatusBadRequest)
@@ -423,7 +526,6 @@ func NewServer(fs *services.FileService, signer *urlsigner.URLSigner, internalAP
 			return
 		}
 
-		// Otherwise treat as an object key.
 		objectKey := secondPart
 		switch r.Method {
 		case http.MethodGet:
@@ -440,9 +542,8 @@ func NewServer(fs *services.FileService, signer *urlsigner.URLSigner, internalAP
 	// Retrieve an HTTP-specific logger.
 	httpLog := logger.NewHttpLogger()
 
-	// Wrap our mux with signature validation middleware first, then logging
-	signedMux := middleware.SignatureValidationMiddleware(mux, signer, internalAPIKey, httpLog)
-	loggedMux := middleware.LoggingMiddleware(signedMux, httpLog)
+	// Internal server: no signature validation, just logging
+	loggedMux := middleware.LoggingMiddleware(mux, httpLog)
 
 	return &Server{
 		mux:    loggedMux,
