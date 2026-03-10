@@ -1,6 +1,7 @@
 package filestorage_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -219,6 +220,65 @@ func TestGetFile(t *testing.T) {
 
 	if !reflect.DeepEqual(fileContent, expectedFile) {
 		t.Errorf("Expected file content %s, got %s", expectedFile, fileContent)
+	}
+}
+
+func TestStreamFile(t *testing.T) {
+	expectedFile := []byte("This is a streamed file content")
+	filename := "test-file"
+	bucketName := "test-bucket"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RequestURI() != fmt.Sprintf("/buckets/%s/%s?metadataOnly=false", bucketName, filename) || r.Method != http.MethodGet {
+			t.Errorf("Expected GET request to /buckets/test-bucket/test-file, got %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(expectedFile)
+	}))
+	defer server.Close()
+
+	config := filestorage.FileStorageConfig{URL: server.URL}
+
+	storage, err := filestorage.NewFileStorage(config)
+	if err != nil {
+		t.Fatalf("Failed to create file storage: %v", err)
+	}
+
+	var output bytes.Buffer
+	written, err := storage.StreamFile(bucketName, filename, &output)
+	if err != nil {
+		t.Fatalf("Failed to stream file: %v", err)
+	}
+
+	if written != int64(len(expectedFile)) {
+		t.Fatalf("Expected %d bytes streamed, got %d", len(expectedFile), written)
+	}
+
+	if !reflect.DeepEqual(output.Bytes(), expectedFile) {
+		t.Errorf("Expected streamed content %s, got %s", expectedFile, output.Bytes())
+	}
+}
+
+func TestStreamFileWithNilDestination(t *testing.T) {
+	filename := "test-file"
+	bucketName := "test-bucket"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("content"))
+	}))
+	defer server.Close()
+
+	config := filestorage.FileStorageConfig{URL: server.URL}
+
+	storage, err := filestorage.NewFileStorage(config)
+	if err != nil {
+		t.Fatalf("Failed to create file storage: %v", err)
+	}
+
+	_, err = storage.StreamFile(bucketName, filename, nil)
+	if err == nil {
+		t.Fatal("Expected error for nil destination writer, got nil")
 	}
 }
 

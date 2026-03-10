@@ -30,6 +30,7 @@ type FileStorage interface {
 	DeleteMultipleFiles(bucketName string, directoryPrefix string) error
 
 	GetFile(bucketName string, objectKey string) ([]byte, error)
+	StreamFile(bucketName string, objectKey string, dst io.Writer) (int64, error)
 	GetFileURL(bucketName string, objectKey string) string
 	// GetSignedFilePath calls the /sign endpoint on the file-storage internal server
 	// and returns a signed path (e.g. /buckets/name/key?expires=...&signature=...).
@@ -414,6 +415,16 @@ func (fs *fileStorage) DeleteMultipleFiles(bucketName string, directoryPrefix st
 }
 
 func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, error) {
+	var buffer bytes.Buffer
+	_, err := fs.StreamFile(bucketName, objectKey, &buffer)
+	if err != nil {
+		return nil, err
+	}
+
+	return buffer.Bytes(), nil
+}
+
+func (fs *fileStorage) StreamFile(bucketName string, objectKey string, dst io.Writer) (int64, error) {
 	apiPrefix := fmt.Sprintf("/buckets/%s/%s?metadataOnly=false", bucketName, objectKey)
 	apiURL := fs.config.URL + apiPrefix
 
@@ -422,7 +433,7 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
 		slog.Error("Error creating get file request", "error", err)
-		return nil, &ErrClient{
+		return 0, &ErrClient{
 			Message: "failed to create get file request",
 			Err:     err,
 			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey},
@@ -432,7 +443,7 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.Error("Error fetching file metadata", "error", err)
-		return nil, &ErrClient{
+		return 0, &ErrClient{
 			Message: "failed to fetch file",
 			Err:     err,
 			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey, "url": apiURL},
@@ -445,28 +456,37 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 		msg, err := io.ReadAll(resp.Body)
 		if err != nil {
 			slog.Error("Error reading response body", "error", err)
-			return nil, &ErrClient{
+			return 0, &ErrClient{
 				Message: "failed to fetch file and read response body",
 				Err:     err,
 				Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey, "status_code": resp.StatusCode},
 			}
 		}
-		return nil, &ErrAPI{
+		return 0, &ErrAPI{
 			StatusCode: resp.StatusCode,
 			Message:    string(msg),
 		}
 	}
 
-	fileContent, err := io.ReadAll(resp.Body)
+	if dst == nil {
+		return 0, &ErrClient{
+			Message: "destination writer cannot be nil",
+			Err:     errors.New("destination writer is nil"),
+			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey},
+		}
+	}
+
+	written, err := io.Copy(dst, resp.Body)
 	if err != nil {
 		slog.Error("Error reading file content", "error", err)
-		return nil, &ErrClient{
-			Message: "failed to read file content",
+		return 0, &ErrClient{
+			Message: "failed to stream file content",
 			Err:     err,
 			Context: map[string]any{"bucket_name": bucketName, "object_key": objectKey},
 		}
 	}
-	return fileContent, nil
+
+	return written, nil
 }
 
 // GetFileURL returns the direct URL to access a file in the specified bucket
