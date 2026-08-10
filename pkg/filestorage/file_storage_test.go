@@ -520,6 +520,20 @@ func TestGetSignedFilePath_ViaEndpoint(t *testing.T) {
 	}
 }
 
+func TestGetInternalFileURL(t *testing.T) {
+	config := filestorage.FileStorageConfig{URL: "http://storage:8081"}
+	storage, err := filestorage.NewFileStorage(config)
+	if err != nil {
+		t.Fatalf("Failed to create file storage: %v", err)
+	}
+
+	url := storage.GetInternalFileURL("maxit", "task/1/description.pdf")
+	expected := "http://storage:8081/buckets/maxit/task/1/description.pdf?metadataOnly=false"
+	if url != expected {
+		t.Errorf("GetInternalFileURL() = %q, expected %q", url, expected)
+	}
+}
+
 func TestGetSignedFilePath_ServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -537,3 +551,4 @@ func TestGetSignedFilePath_ServerError(t *testing.T) {
 		t.Error("Expected error for server error response")
 	}
 }
+

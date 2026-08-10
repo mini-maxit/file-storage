@@ -30,7 +30,10 @@ type FileStorage interface {
 	DeleteMultipleFiles(bucketName string, directoryPrefix string) error
 
 	GetFile(bucketName string, objectKey string) ([]byte, error)
-	GetFileURL(bucketName string, objectKey string) string
+	// GetInternalFileURL returns the raw, unsigned URL for the internal storage API.
+	// This bypasses the public signing gateway and must never be exposed to clients.
+	// Use GetSignedFilePath to produce paths safe for client consumption.
+	GetInternalFileURL(bucketName string, objectKey string) string
 	// GetSignedFilePath calls the /sign endpoint on the file-storage internal server
 	// and returns a signed path (e.g. /buckets/name/key?expires=...&signature=...).
 	// The caller is responsible for prepending the desired base URL.
@@ -469,8 +472,10 @@ func (fs *fileStorage) GetFile(bucketName string, objectKey string) ([]byte, err
 	return fileContent, nil
 }
 
-// GetFileURL returns the direct URL to access a file in the specified bucket
-func (fs *fileStorage) GetFileURL(bucketName string, objectKey string) string {
+// GetInternalFileURL returns the raw, unsigned URL for the internal storage API.
+// It bypasses the public signing gateway (which would reject it with 403) and must
+// never be exposed to clients.
+func (fs *fileStorage) GetInternalFileURL(bucketName string, objectKey string) string {
 	apiPrefix := fmt.Sprintf("/buckets/%s/%s?metadataOnly=false", bucketName, objectKey)
 	return fs.config.URL + apiPrefix
 }
