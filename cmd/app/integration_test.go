@@ -26,7 +26,7 @@ func TestSignedURLIntegration(t *testing.T) {
 
 	// Create config
 	cfg := &config.Config{
-		Port:          "8080",
+		PublicServerPort: "8080",
 		RootDirectory: tempDir,
 		SigningSecret: testSecret,
 	}
@@ -44,7 +44,7 @@ func TestSignedURLIntegration(t *testing.T) {
 	// Public server: signed-URL validation, GET only
 	publicSrv := server.NewServer(fileService, signer, log)
 	// Internal server: no auth, all CRUD operations
-	internalSrv := server.NewInternalServer(fileService, signer, log)
+	internalSrv := server.NewInternalServer(fileService, signer, time.Duration(cfg.MaxSignTTLSeconds)*time.Second, log)
 
 	// Seed data via internal server (no auth needed)
 	createBucket(t, internalSrv, "test-bucket")
@@ -159,6 +159,40 @@ func TestSignedURLIntegration(t *testing.T) {
 			t.Errorf("Expected 403 for non-PDF file without signature, got %d: %s", w.Code, w.Body.String())
 		}
 	})
+
+	// Test 7: HEAD on a signed object URL is allowed on the public server
+	t.Run("HEADOnSignedURL", func(t *testing.T) {
+		path := "/buckets/test-bucket/test.pdf"
+		signedURL, err := signer.SignURL(path, 1*time.Hour)
+		if err != nil {
+			t.Fatalf("Failed to sign URL: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodHead, signedURL, nil)
+		w := httptest.NewRecorder()
+
+		publicSrv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected 200 for HEAD on signed URL, got %d: %s", w.Code, w.Body.String())
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("Expected empty body for HEAD, got %q", w.Body.String())
+		}
+	})
+
+	// Test 8: HEAD without signature is rejected on the public server
+	t.Run("HEADWithoutSignature", func(t *testing.T) {
+		path := "/buckets/test-bucket/test.pdf"
+		req := httptest.NewRequest(http.MethodHead, path, nil)
+		w := httptest.NewRecorder()
+
+		publicSrv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("Expected 403 for HEAD without signature, got %d: %s", w.Code, w.Body.String())
+		}
+	})
 }
 
 func TestSignEndpoint(t *testing.T) {
@@ -166,9 +200,10 @@ func TestSignEndpoint(t *testing.T) {
 	testSecret := "test-sign-endpoint-secret"
 
 	cfg := &config.Config{
-		Port:          "8080",
-		RootDirectory: tempDir,
-		SigningSecret: testSecret,
+		PublicServerPort:   "8080",
+		RootDirectory:     tempDir,
+		SigningSecret:     testSecret,
+		MaxSignTTLSeconds: 3600,
 	}
 
 	fileService := services.NewFileService(cfg)
@@ -177,7 +212,7 @@ func TestSignEndpoint(t *testing.T) {
 	logger.InitializeLogger()
 	log := logger.NewNamedLogger("test-sign")
 
-	internalSrv := server.NewInternalServer(fileService, signer, log)
+	internalSrv := server.NewInternalServer(fileService, signer, time.Duration(cfg.MaxSignTTLSeconds)*time.Second, log)
 
 	// Create a bucket and object so the key exists
 	createBucket(t, internalSrv, "sign-bucket")
@@ -252,6 +287,48 @@ func TestSignEndpoint(t *testing.T) {
 
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("Expected 405, got %d", w.Code)
+		}
+	})
+
+	t.Run("NonExistentObject", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/sign?bucket=sign-bucket&key=missing.pdf&ttl=60", nil)
+		w := httptest.NewRecorder()
+		internalSrv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("Expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("NonExistentBucket", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/sign?bucket=no-such-bucket&key=doc.pdf&ttl=60", nil)
+		w := httptest.NewRecorder()
+		internalSrv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("Expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("TTLAboveCap", func(t *testing.T) {
+		// maxSignTTLSeconds = 3600, request asks for 7200
+		req := httptest.NewRequest(http.MethodGet, "/sign?bucket=sign-bucket&key=doc.pdf&ttl=7200", nil)
+		w := httptest.NewRecorder()
+		internalSrv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("Expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("TTLAtCapAccepted", func(t *testing.T) {
+		// ttl exactly at the cap should be allowed
+		req := httptest.NewRequest(http.MethodGet, "/sign?bucket=sign-bucket&key=doc.pdf&ttl=3600", nil)
+		w := httptest.NewRecorder()
+		internalSrv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }

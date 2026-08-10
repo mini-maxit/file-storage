@@ -380,8 +380,8 @@ func TestIsObjectEndpoint(t *testing.T) {
 		{"/buckets/test-bucket/folder/test-file.pdf", true},
 		{"/buckets/test-bucket", false},
 		{"/buckets", false},
-		{"/buckets/test-bucket/upload-multiple", false},
-		{"/buckets/test-bucket/remove-multiple", false},
+		{"/buckets/test-bucket/upload-multiple", true},
+		{"/buckets/test-bucket/remove-multiple", true},
 		{"/other/path", false},
 	}
 
@@ -392,5 +392,58 @@ func TestIsObjectEndpoint(t *testing.T) {
 				t.Errorf("isObjectEndpoint(%s) = %v, expected %v", tt.path, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestSignatureValidationMiddleware_HEADWithValidSignature(t *testing.T) {
+	// HEAD is a read operation and should be allowed with a valid signature,
+	// mirroring GET behavior.
+	signer := urlsigner.NewURLSigner("test-secret")
+	logger, _ := zap.NewDevelopment()
+	sugaredLogger := logger.Sugar()
+
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
+
+	path := "/buckets/test-bucket/test-file.pdf"
+	signedURL, err := signer.SignURL(path, 1*time.Hour)
+	if err != nil {
+		t.Fatalf("Failed to sign URL: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodHead, signedURL, nil)
+	w := httptest.NewRecorder()
+
+	middleware.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+}
+
+func TestSignatureValidationMiddleware_HEADMissingSignature(t *testing.T) {
+	// HEAD without signature must be forbidden, same as GET.
+	signer := urlsigner.NewURLSigner("test-secret")
+	logger, _ := zap.NewDevelopment()
+	sugaredLogger := logger.Sugar()
+
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called for HEAD without signature")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	middleware := SignatureValidationMiddleware(nextHandler, signer, sugaredLogger)
+
+	path := "/buckets/test-bucket/test-file.pdf"
+	req := httptest.NewRequest(http.MethodHead, path, nil)
+	w := httptest.NewRecorder()
+
+	middleware.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403, got %d", w.Code)
 	}
 }

@@ -387,9 +387,9 @@ func NewServer(fs *services.FileService, signer *urlsigner.URLSigner, appLog *za
 	})
 
 	// /buckets/* routes for bucket-specific and object-specific operations.
-	// PUBLIC: only GET requests are allowed
+	// PUBLIC: only GET/HEAD requests are allowed
 	mux.HandleFunc("/buckets/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "Method not allowed. Use internal server for write operations.", http.StatusMethodNotAllowed)
 			return
 		}
@@ -431,7 +431,7 @@ func NewServer(fs *services.FileService, signer *urlsigner.URLSigner, appLog *za
 // NewInternalServer creates a server for internal network use (backend/worker).
 // It does not validate signatures - any request from the internal network is allowed.
 // This server should only be exposed on an internal port.
-func NewInternalServer(fs *services.FileService, signer *urlsigner.URLSigner, appLog *zap.SugaredLogger) *Server {
+func NewInternalServer(fs *services.FileService, signer *urlsigner.URLSigner, maxSignTTL time.Duration, appLog *zap.SugaredLogger) *Server {
 	// Create the base mux for our file storage API endpoints.
 	mux := http.NewServeMux()
 
@@ -454,6 +454,13 @@ func NewInternalServer(fs *services.FileService, signer *urlsigner.URLSigner, ap
 			return
 		}
 
+		// Only sign existing objects.
+		if _, err := fs.GetObject(bucket, key); err != nil {
+			appLog.Warnf("Refusing to sign non-existent object bucket=%s key=%s", bucket, key)
+			http.Error(w, "object not found", http.StatusNotFound)
+			return
+		}
+
 		ttlSeconds := int64(300) // default 5 minutes
 		if ttlStr := q.Get("ttl"); ttlStr != "" {
 			parsed, err := strconv.ParseInt(ttlStr, 10, 64)
@@ -462,6 +469,16 @@ func NewInternalServer(fs *services.FileService, signer *urlsigner.URLSigner, ap
 			} else {
 				ttlSeconds = parsed
 			}
+		}
+
+		maxTTLSeconds := int64(maxSignTTL.Seconds())
+		if maxTTLSeconds <= 0 {
+			maxTTLSeconds = 3600
+		}
+		if ttlSeconds > maxTTLSeconds {
+			appLog.Warnf("Rejecting ttl %ds above cap %ds for bucket=%s key=%s", ttlSeconds, maxTTLSeconds, bucket, key)
+			http.Error(w, "ttl exceeds maximum allowed value", http.StatusBadRequest)
+			return
 		}
 
 		objectPath := fmt.Sprintf("/buckets/%s/%s", bucket, key)

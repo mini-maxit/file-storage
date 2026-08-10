@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"time"
 
 	"github.com/mini-maxit/file-storage/internal/api/services"
 	"github.com/mini-maxit/file-storage/internal/logger"
@@ -36,7 +37,7 @@ func main() {
 	logger.InitializeLogger()
 	public_log := logger.NewNamedLogger("public-server")
 
-	publicAddr := ":" + _config.Port
+	publicAddr := ":" + _config.PublicServerPort
 	publicServer := server.NewServer(fileService, signer, public_log)
 	go func() {
 		public_log.Infof("Starting public server on %s", publicAddr)
@@ -45,9 +46,9 @@ func main() {
 		}
 	}()
 
-	internalAddr := ":" + _config.InternalPort
+	internalAddr := ":" + _config.InternalServerPort
 	internal_log := logger.NewNamedLogger("internal-server")
-	internalServer := server.NewInternalServer(fileService, signer, internal_log)
+	internalServer := server.NewInternalServer(fileService, signer, time.Duration(_config.MaxSignTTLSeconds)*time.Second, internal_log)
 	internal_log.Infof("Starting internal server on %s", internalAddr)
 	if err := internalServer.Run(internalAddr); err != nil {
 		logrus.Fatalf("internal server stopped: %v", err)
